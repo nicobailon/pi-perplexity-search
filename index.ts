@@ -122,7 +122,7 @@ function handleSessionChange(ctx: ExtensionContext): void {
 }
 
 export default function (pi: ExtensionAPI) {
-	pi.registerShortcut(Key.ctrlShift("o"), {
+	pi.registerShortcut(Key.ctrlShift("w"), {
 		description: "Toggle web search activity",
 		handler: async (ctx) => {
 			widgetVisible = !widgetVisible;

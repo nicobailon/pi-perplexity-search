@@ -1,5 +1,6 @@
 {
   "name": "web-search-extension",
+  "version": "0.3.0",
   "type": "module",
   "dependencies": {
     "@mozilla/readability": "^0.5.0",

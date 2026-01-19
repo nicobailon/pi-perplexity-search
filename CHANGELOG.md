@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-19
+
+### Added
+
+- RSC (React Server Components) content extraction for Next.js App Router pages
+  - Parses flight data from `<script>self.__next_f.push([...])</script>` tags
+  - Reconstructs markdown with headings, tables, code blocks, links
+  - Handles chunk references and nested components
+  - Falls back to RSC extraction when Readability fails
+- Content-type validation rejects binary files (images, PDFs, audio, video, zip)
+- 5MB response size limit (checked via Content-Length header) to prevent memory issues
+
 ### Fixed
 
 - `fetch_content` now handles plain text URLs (raw.githubusercontent.com, gist.githubusercontent.com, any text/plain response) instead of failing with "Could not extract readable content"

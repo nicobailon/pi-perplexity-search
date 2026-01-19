@@ -1,14 +1,13 @@
-# Pi Perplexity Web Search Extension
+# Pi Web Search
 
-Web search and content fetching extension for [pi](https://github.com/badlogic/pi-mono). Uses Perplexity AI for search, extracts readable content from URLs.
+An extension for [Pi coding agent](https://github.com/badlogic/pi-mono/) that adds web search and content fetching. Uses Perplexity AI for search, extracts readable content from URLs.
 
+```typescript
+web_search({ query: "TypeScript best practices 2025" })
+fetch_content({ url: "https://docs.example.com/guide" })
 ```
-Search for "TypeScript best practices 2025"
-```
 
-**Requires:** pi v0.37.3+
-
-## Why This Extension
+## Why
 
 AI agents need web access. Most solutions require complex setup or external services.
 
@@ -17,16 +16,18 @@ This extension:
 - **Single API Key** - Just Perplexity. No orchestration services, no subscriptions.
 - **Async Content Fetching** - Background fetch with agent notification when ready.
 - **Session-Aware Storage** - Results persist across turns, isolated per session.
-- **Clean Extraction** - Readability + Turndown for markdown output, not raw HTML dumps.
+- **Clean Extraction** - Readability + RSC parser for markdown output, not raw HTML dumps.
 
-## Installation
+## Install
 
 ```bash
-# From extension directory
+# Clone to extensions directory
+git clone https://github.com/nicobailon/pi-web-search ~/.pi/agent/extensions/web-search
+cd ~/.pi/agent/extensions/web-search
 npm install
 ```
 
-Add your Perplexity API key (either method):
+Add your Perplexity API key:
 
 ```bash
 # Option 1: Environment variable
@@ -37,6 +38,8 @@ echo '{"perplexityApiKey": "pplx-..."}' > ~/.pi/web-search.json
 ```
 
 Get a key at https://perplexity.ai/settings/api
+
+**Requires:** Pi v0.37.3+
 
 ## Tools
 
@@ -92,11 +95,11 @@ get_search_content({ responseId: "abc123", url: "https://..." })
 get_search_content({ responseId: "abc123", query: "original query" })
 ```
 
-## Shortcuts
+## Features
 
-### Ctrl+Shift+O
+### Activity Monitor (Ctrl+Shift+O)
 
-Toggle the activity monitor widget showing live request/response activity:
+Toggle live request/response activity:
 
 ```
 ─── Web Search Activity ────────────────────────────────────
@@ -108,76 +111,25 @@ Toggle the activity monitor widget showing live request/response activity:
 Rate: 3/10 (resets in 42s)
 ```
 
-Status indicators:
-- `✓` Success (2xx)
-- `✗` Error (4xx/5xx or network error)
-- `⋯` Pending
-- `○` Aborted
+### RSC Content Extraction
+
+Next.js App Router pages embed content as RSC (React Server Components) flight data in script tags. When Readability fails, the extension parses these JSON payloads directly, reconstructing markdown with headings, tables, code blocks, and links.
+
+### TUI Rendering
+
+Tool calls render with real-time progress:
+
+```
+┌─ search "TypeScript best practices 2025" ─────────────────────────┐
+│ [████████░░] searching                                            │
+└───────────────────────────────────────────────────────────────────┘
+```
 
 ## Commands
 
 ### /search
 
 Browse stored search results interactively.
-
-## TUI Display
-
-Tool calls render with real-time progress and expandable details:
-
-```
-┌─ search "TypeScript best practices 2025" ─────────────────────────┐
-│ [████████░░] searching                                            │
-└───────────────────────────────────────────────────────────────────┘
-
-┌─ search "TypeScript best practices 2025" ─────────────────────────┐
-│ 5 sources (fetching 5 URLs)                                       │
-└───────────────────────────────────────────────────────────────────┘
-```
-
-Multiple queries show each one:
-
-```
-┌─ search 3 queries ────────────────────────────────────────────────┐
-│   "rust async programming"                                        │
-│   "tokio vs async-std"                                            │
-│   "rust futures explained"                                        │
-├───────────────────────────────────────────────────────────────────┤
-│ 3/3 queries, 15 sources                                           │
-└───────────────────────────────────────────────────────────────────┘
-```
-
-Content fetching shows URLs:
-
-```
-┌─ fetch 4 URLs ────────────────────────────────────────────────────┐
-│   https://docs.rust-lang.org/book/ch16-00-concurrency.html        │
-│   https://tokio.rs/tokio/tutorial                                 │
-│   https://rust-lang.github.io/async-book/                         │
-│   https://blog.example.com/rust-async-deep-dive                   │
-├───────────────────────────────────────────────────────────────────┤
-│ 4/4 URLs (content stored)                                         │
-└───────────────────────────────────────────────────────────────────┘
-```
-
-Expanded view shows content preview:
-
-```
-┌─ search "what is WebGPU" ─────────────────────────────────────────┐
-│ 5 sources                                                         │
-│                                                                   │
-│ WebGPU is a new web standard for graphics and compute that        │
-│ provides modern GPU capabilities to web applications. Unlike      │
-│ WebGL, which is based on OpenGL ES, WebGPU is designed from       │
-│ scratch for modern GPU architectures...                           │
-│                                                                   │
-│ ---                                                               │
-│                                                                   │
-│ **Sources:**                                                      │
-│ 1. WebGPU Fundamentals                                            │
-│    https://webgpufundamentals.org/                                │
-│ ...                                                               │
-└───────────────────────────────────────────────────────────────────┘
-```
 
 ## How It Works
 
@@ -188,16 +140,12 @@ Agent Request → Perplexity API → Synthesized Answer + Citations
                                          ↓
                               Background Fetch (3 concurrent)
                                          ↓
-                              Readability → Turndown → Markdown
+                              Readability → Markdown
+                                    ↓ (fallback)
+                              RSC Parser → Markdown
                                          ↓
                               Agent Notification (triggerTurn)
 ```
-
-Content extraction uses:
-- `@mozilla/readability` - Article extraction
-- `linkedom` - Server-side DOM
-- `turndown` - HTML to Markdown
-- `p-limit` - Concurrency control
 
 ## Rate Limits
 
@@ -212,16 +160,14 @@ Content extraction uses:
 | `index.ts` | Extension entry, tool definitions, commands, widget |
 | `perplexity.ts` | Perplexity API client, rate limiting |
 | `extract.ts` | URL fetching, content extraction |
+| `rsc-extract.ts` | RSC flight data parser for Next.js pages |
 | `storage.ts` | Session-aware result storage |
 | `activity.ts` | Activity tracking for observability widget |
 
 ## Limitations
 
 - Content extraction works best on article-style pages
-- Heavy JS sites may not extract well (no browser rendering)
-- Max content length: 10,000 chars per URL (truncated)
-- Requires restart after config file changes
-
-## License
-
-MIT
+- Heavy JS sites may not extract well (no browser rendering), though Next.js App Router pages with RSC flight data are supported
+- Binary files (images, PDFs, etc.) are rejected
+- Max response size: 5MB, max content length: 10,000 chars per URL (truncated)
+- Requires Pi restart after config file changes
