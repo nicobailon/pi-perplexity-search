@@ -1,3 +1,7 @@
+<p>
+  <img src="banner.png" alt="pi-web-access" width="1100">
+</p>
+
 # Pi Web Access
 
 An extension for [Pi coding agent](https://github.com/badlogic/pi-mono/) that gives Pi web capabilities: search via Perplexity AI, fetch and extract content from URLs, and read PDFs.
@@ -7,23 +11,12 @@ web_search({ query: "TypeScript best practices 2025" })
 fetch_content({ url: "https://docs.example.com/guide" })
 ```
 
-## Why
-
-AI agents need web access. Most solutions require complex setup or external services.
-
-This extension:
-
-- **Single API Key** - Just Perplexity. No orchestration services, no subscriptions.
-- **Async Content Fetching** - Background fetch with agent notification when ready.
-- **Session-Aware Storage** - Results persist across turns, isolated per session.
-- **Clean Extraction** - Readability + RSC parser for markdown output, not raw HTML dumps.
-
 ## Install
 
 ```bash
 # Clone to extensions directory
-git clone https://github.com/nicobailon/pi-web-access ~/.pi/agent/extensions/web-search
-cd ~/.pi/agent/extensions/web-search
+git clone https://github.com/nicobailon/pi-web-access ~/.pi/agent/extensions/pi-web-access
+cd ~/.pi/agent/extensions/pi-web-access
 npm install
 ```
 
