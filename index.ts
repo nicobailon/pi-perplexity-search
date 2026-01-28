@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Key, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { StringEnum } from "@mariozechner/pi-ai";
 import { fetchAllContent, type ExtractedContent } from "./extract.js";
 import { searchWithPerplexity, type SearchResult } from "./perplexity.js";
 import {
@@ -166,9 +167,7 @@ export default function (pi: ExtensionAPI) {
 			numResults: Type.Optional(Type.Number({ description: "Results per query (default: 5, max: 20)" })),
 			includeContent: Type.Optional(Type.Boolean({ description: "Fetch full page content (async)" })),
 			recencyFilter: Type.Optional(
-				Type.Union([Type.Literal("day"), Type.Literal("week"), Type.Literal("month"), Type.Literal("year")], {
-					description: "Filter by recency",
-				}),
+				StringEnum(["day", "week", "month", "year"], { description: "Filter by recency" }),
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 		}),

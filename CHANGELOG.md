@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-01-27
+
+### Fixed
+- Google API compatibility: Use `StringEnum` for `recencyFilter` to avoid unsupported `anyOf`/`const` JSON Schema patterns
+
 ## [0.4.2] - 2026-01-27
 
 ### Fixed
