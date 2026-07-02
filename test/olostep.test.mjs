@@ -74,11 +74,13 @@ test("searchWithOlostep sends correct request and returns shaped result", async 
 			capturedHeaders = Object.fromEntries(Object.entries(init.headers));
 			capturedBody = JSON.parse(init.body);
 			return new Response(JSON.stringify({
-				answer: "Olostep is a web scraping API.",
-				results: [
-					{ url: "https://olostep.com", title: "Olostep", description: "Web scraping API" },
-					{ url: "https://docs.olostep.com", title: "Olostep Docs", description: "API docs" },
-				],
+				result: {
+					json_content: JSON.stringify({ result: "Olostep is a web scraping API." }),
+					sources: [
+						{ url: "https://olostep.com", title: "Olostep", description: "Web scraping API" },
+						{ url: "https://docs.olostep.com", title: "Olostep Docs", description: "API docs" },
+					],
+				},
 			}), { status: 200, headers: { "content-type": "application/json" } });
 		};
 
@@ -92,7 +94,7 @@ test("searchWithOlostep sends correct request and returns shaped result", async 
 
 	assert.ok(capturedUrl.includes("olostep.com"), "should call Olostep API");
 	assert.ok(capturedHeaders["Authorization"]?.includes("test-key-123"), "should send Bearer auth");
-	assert.strictEqual(capturedBody.query, "what is olostep");
+	assert.strictEqual(capturedBody.task, "what is olostep");
 	assert.strictEqual(capturedBody.numResults, 3);
 	assert.strictEqual(typeof result.answer, "string");
 	assert.ok(result.answer.length > 0, "answer should be non-empty");
@@ -146,8 +148,10 @@ test("extractWithOlostep returns ExtractedContent on success", async () => {
 	const child = runChild(`
 		globalThis.fetch = async (url, init) => {
 			return new Response(JSON.stringify({
-				markdown_content: "# Hello from Olostep\\n\\nThis is extracted content.",
-				page_title: "Test Page",
+				result: {
+					markdown_content: "# Hello from Olostep\\n\\nThis is extracted content.",
+					page_title: "Test Page",
+				},
 				url: "https://example.com",
 			}), { status: 200, headers: { "content-type": "application/json" } });
 		};

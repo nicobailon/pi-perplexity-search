@@ -19,13 +19,19 @@ interface OlostepAnswerResult {
 }
 
 interface OlostepAnswerResponse {
-	answer?: string;
-	results?: OlostepAnswerResult[];
+	// /v1/answers nests the synthesized answer and its citations under `result`.
+	result?: {
+		json_content?: string;
+		sources?: OlostepAnswerResult[];
+	};
 }
 
 interface OlostepScrapeResponse {
-	markdown_content?: string;
-	page_title?: string;
+	// /v1/scrapes nests the page content under `result`.
+	result?: {
+		markdown_content?: string;
+		page_title?: string;
+	};
 	url?: string;
 	error?: string;
 }
@@ -89,7 +95,7 @@ export async function searchWithOlostep(query: string, options: SearchOptions = 
 	const activityId = activityMonitor.logStart({ type: "api", query });
 
 	try {
-		const body: Record<string, unknown> = { query };
+		const body: Record<string, unknown> = { task: query };
 		if (options.numResults && options.numResults !== 5) {
 			body.numResults = options.numResults;
 		}
@@ -133,9 +139,22 @@ export async function searchWithOlostep(query: string, options: SearchOptions = 
 		const data = await response.json() as OlostepAnswerResponse;
 		activityMonitor.logComplete(activityId, response.status);
 
+		const result = data.result ?? {};
+		let answer = "";
+		if (typeof result.json_content === "string" && result.json_content.length) {
+			try {
+				const parsed = JSON.parse(result.json_content) as unknown;
+				answer = typeof parsed === "string"
+					? parsed
+					: String((parsed as Record<string, unknown>)?.result ?? (parsed as Record<string, unknown>)?.answer ?? result.json_content);
+			} catch {
+				answer = result.json_content;
+			}
+		}
+
 		return {
-			answer: data.answer || "",
-			results: mapResults(data.results),
+			answer,
+			results: mapResults(result.sources),
 		};
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -165,7 +184,7 @@ export async function extractWithOlostep(
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
-				url,
+				url_to_scrape: url,
 				formats: ["markdown"],
 			}),
 			signal: requestSignal(signal),
@@ -180,12 +199,12 @@ export async function extractWithOlostep(
 		const data = await response.json() as OlostepScrapeResponse;
 		activityMonitor.logComplete(activityId, response.status);
 
-		const content = data.markdown_content?.trim() || "";
+		const content = data.result?.markdown_content?.trim() || "";
 		if (!content) return null;
 
 		return {
 			url: data.url || url,
-			title: data.page_title || "",
+			title: data.result?.page_title || "",
 			content,
 			error: null,
 		};
