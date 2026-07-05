@@ -117,7 +117,7 @@ function extractAccountId(token: string): string | undefined {
 
 export async function resolveOpenAIAuth(ctx?: ExtensionContext): Promise<OpenAIAuth | undefined> {
 	if (ctx) {
-		const { getModel } = await import("@earendil-works/pi-ai/compat");
+		const { getModel } = await import("@earendil-works/pi-ai");
 		for (const candidate of AUTH_MODEL_CANDIDATES) {
 			for (const modelId of candidate.models) {
 				const model = getModel(candidate.provider, modelId);

@@ -1,4 +1,4 @@
-import { complete, type Message, type Model } from "@earendil-works/pi-ai/compat";
+import { complete, type Message, type Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import type { QueryResultData } from "./storage.ts";
