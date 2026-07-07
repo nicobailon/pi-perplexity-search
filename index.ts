@@ -1136,20 +1136,6 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (searchesComplete) handle.searchesDone();
 
-			const sendCuratorFallbackUpdate = (message: string) => {
-				pc.onUpdate?.({
-					content: [{ type: "text", text: `${message}\nOpen manually: ${handle.url}` }],
-					details: {
-						phase: "curator-fallback",
-						progress: searchesComplete ? 1 : 0.5,
-						curatorUrl: handle.url,
-						timeoutSeconds: pc.timeoutSeconds,
-						shortcut: curateKey,
-						browserOpenError: pc.browserOpenError,
-					},
-				});
-			};
-
 			pc.onUpdate?.({
 				content: [{ type: "text", text: searchesComplete ? "Waiting for summary approval in browser..." : "Searches streaming to browser..." }],
 				details: {
@@ -1181,6 +1167,19 @@ export default function (pi: ExtensionAPI) {
 			}
 			await openInBrowser(pi, handle.url);
 		} catch (err) {
+			const sendCuratorFallbackUpdate = (message: string) => {
+				pc.onUpdate?.({
+					content: [{ type: "text", text: `${message}\nOpen manually: ${handle?.url}` }],
+					details: {
+						phase: "curator-fallback",
+						progress: searchesComplete ? 1 : 0.5,
+						curatorUrl: handle?.url,
+						timeoutSeconds: pc.timeoutSeconds,
+						shortcut: curateKey,
+						browserOpenError: pc.browserOpenError,
+					},
+				});
+			};
 			const message = err instanceof Error ? err.message : String(err);
 			console.error(`Failed to open curator UI: ${message}`);
 			if (handle && activeCurators.get(callId) === handle && pendingCurates.get(callId) === pc) {
