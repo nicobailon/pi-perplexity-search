@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Fixed a `ReferenceError: sendCuratorFallbackUpdate is not defined` crash that took down the whole process when the curator browser failed to auto-open (Docker, WSL, SSH, and headless environments). The fallback helper was declared inside the `try` block but called from the sibling `catch` block; it is now declared at function scope so the browser-open failure path resolves correctly.
+
 ## [0.13.0] - 2026-06-25
 
 ### Added
