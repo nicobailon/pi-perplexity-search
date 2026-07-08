@@ -9,9 +9,11 @@ import { isBraveAvailable, searchWithBrave } from "./brave.ts";
 import { isOpenAISearchAvailable, searchWithOpenAI } from "./openai-search.ts";
 import { isParallelAvailable, searchWithParallel } from "./parallel.ts";
 import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
+import { isSearXNGConfigured, searchWithSearXNG } from "./searxng.ts";
+import { isFirecrawlConfigured, searchWithFirecrawl } from "./firecrawl.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "perplexity" | "gemini" | "exa";
+export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "perplexity" | "gemini" | "exa" | "searxng" | "firecrawl";
 export type ResolvedSearchProvider = Exclude<SearchProvider, "auto">;
 
 export interface AttributedSearchResponse extends SearchResponse {
@@ -61,7 +63,7 @@ function normalizeSearchModel(value: unknown): string | undefined {
 
 function normalizeSearchProvider(value: unknown): SearchProvider {
 	const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "perplexity", "gemini", "exa"];
+	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "perplexity", "gemini", "exa", "searxng", "firecrawl"];
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
@@ -131,6 +133,16 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		return { ...result, provider: "brave" };
 	}
 
+	if (provider === "searxng") {
+		const result = await searchWithSearXNG(query, options);
+		return { ...result, provider: "searxng" };
+	}
+
+	if (provider === "firecrawl") {
+		const result = await searchWithFirecrawl(query, options);
+		return { ...result, provider: "firecrawl" };
+	}
+
 	if (provider === "parallel") {
 		const result = await searchWithParallel(query, options);
 		return { ...result, provider: "parallel" };
@@ -197,6 +209,27 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		}
 	}
 
+	// Self-hosted providers first (local-first priority)
+	if (isSearXNGConfigured()) {
+		try {
+			const result = await searchWithSearXNG(query, options);
+			return { ...result, provider: "searxng" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`SearXNG: ${errorMessage(err)}`);
+		}
+	}
+
+	if (isFirecrawlConfigured()) {
+		try {
+			const result = await searchWithFirecrawl(query, options);
+			return { ...result, provider: "firecrawl" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`Firecrawl: ${errorMessage(err)}`);
+		}
+	}
+
 	if (isBraveAvailable()) {
 		try {
 			const result = await searchWithBrave(query, options);
@@ -252,10 +285,11 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	throw new Error(
 		"No search provider available. Either:\n" +
 		"  1. Use /login to sign in with a Codex subscription for OpenAI web search\n" +
-		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tavilyApiKey, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
-		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
-		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
-		"  5. Sign into gemini.google.com in a supported Chromium-based browser"
+		`  2. Set FIRECRAWL_BASE_URL or SEARXNG_BASE_URL (self-hosted)\n` +
+		`  3. Set openaiApiKey, braveApiKey, parallelApiKey, tavilyApiKey, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
+		"  4. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
+		"  5. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
+		"  6. Sign into gemini.google.com in a supported Chromium-based browser"
 	);
 }
 

@@ -38,7 +38,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; perplexity: boolean; exa: boolean; gemini: boolean },
+	availableProviders: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; perplexity: boolean; exa: boolean; gemini: boolean; searxng: boolean; firecrawl: boolean },
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
@@ -665,6 +665,16 @@ main {
   color: #a6e3a1;
   background: rgba(166, 227, 161, 0.14);
   border-color: rgba(166, 227, 161, 0.3);
+}
+.provider-tag.provider-searxng {
+  color: #94e2d5;
+  background: rgba(148, 226, 213, 0.14);
+  border-color: rgba(148, 226, 213, 0.3);
+}
+.provider-tag.provider-firecrawl {
+  color: #fab387;
+  background: rgba(250, 179, 135, 0.14);
+  border-color: rgba(250, 179, 135, 0.3);
 }
 .provider-tag.provider-unknown {
   color: var(--fg-muted);
@@ -1389,7 +1399,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["openai", "exa", "brave", "parallel", "tavily", "perplexity", "gemini"];
+  var providers = ["openai", "exa", "brave", "parallel", "tavily", "perplexity", "gemini", "searxng", "firecrawl"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1590,6 +1600,8 @@ const SCRIPT = `(function() {
 
   function providerLabel(provider) {
     if (provider === "openai") return "OpenAI";
+    if (provider === "searxng") return "SearXNG";
+    if (provider === "firecrawl") return "Firecrawl";
     if (provider === "brave") return "Brave";
     if (provider === "parallel") return "Parallel";
     if (provider === "tavily") return "Tavily";

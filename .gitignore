@@ -1,3 +1,4 @@
 node_modules/
 bun.lock
 package-lock.json
+pi-web-access-*.tgz

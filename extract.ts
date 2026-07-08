@@ -9,6 +9,7 @@ import { extractGitHub } from "./github-extract.ts";
 import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, extractYouTubeFrames, getYouTubeStreamInfo } from "./youtube-extract.ts";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
+import { extractWithFirecrawl, isFirecrawlConfigured } from "./firecrawl.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { fetchRemoteUrl, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
@@ -462,6 +463,18 @@ export async function extractContent(
 	if (jinaResult) return jinaResult;
 	if (signal?.aborted) return abortedResult(url);
 
+	// Firecrawl extraction (self-hosted, Playwright-based)
+	let firecrawlError: string | null = null;
+	try {
+		if (isFirecrawlConfigured()) {
+			const fcResult = await extractWithFirecrawl(url, signal, options);
+			if (fcResult) return fcResult;
+		}
+	} catch (err) {
+		if (isAbortError(err)) return abortedResult(url);
+		firecrawlError = errorMessage(err);
+	}
+
 	let parallelError: string | null = null;
 	try {
 		if (isParallelAvailable()) {
@@ -493,9 +506,11 @@ export async function extractContent(
 
 	const guidance = [
 		httpResult.error,
+		...(firecrawlError ? [`Firecrawl fallback failed: ${firecrawlError}`] : []),
 		...(parallelError ? [`Parallel fallback failed: ${parallelError}`] : []),
 		"",
 		"Fallback options:",
+		`  \u2022 Set FIRECRAWL_BASE_URL / FIRECRAWL_BASIC_AUTH (self-hosted) in environment`,
 		`  \u2022 Set PARALLEL_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
 		`  \u2022 Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
 		"  \u2022 Sign into gemini.google.com in Chrome",

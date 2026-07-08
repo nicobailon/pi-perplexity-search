@@ -42,6 +42,8 @@ import { isBraveAvailable } from "./brave.ts";
 import { isOpenAISearchAvailable } from "./openai-search.ts";
 import { isParallelAvailable } from "./parallel.ts";
 import { isTavilyAvailable } from "./tavily.ts";
+import { isSearXNGConfigured } from "./searxng.ts";
+import { isFirecrawlConfigured } from "./firecrawl.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 
@@ -91,6 +93,8 @@ interface ProviderAvailability {
 	perplexity: boolean;
 	exa: boolean;
 	gemini: boolean;
+	searxng: boolean;
+	firecrawl: boolean;
 }
 
 type WebSearchWorkflow = "none" | "summary-review" | "auto-summary";
@@ -150,7 +154,7 @@ function normalizeProviderInput(value: unknown): SearchProvider | undefined {
 	if (value === undefined) return undefined;
 	if (typeof value !== "string") return "auto";
 	const normalized = value.trim().toLowerCase();
-	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "exa", "perplexity", "gemini"];
+	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "exa", "perplexity", "gemini", "searxng", "firecrawl"];
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
@@ -194,6 +198,8 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		perplexity: isPerplexityAvailable(),
 		exa: isExaAvailable(),
 		gemini: isGeminiApiAvailable() || !!geminiWebAvail,
+		searxng: isSearXNGConfigured(),
+		firecrawl: isFirecrawlConfigured(),
 	};
 }
 
@@ -221,6 +227,9 @@ async function loadCuratorBootstrap(
 
 function firstAvailableProvider(available: ProviderAvailability, preferOpenAI: boolean, fallback: ResolvedSearchProvider): ResolvedSearchProvider {
 	if (preferOpenAI && available.openai) return "openai";
+	// Self-hosted providers prioritized for zero-data-leakage setups
+	if (available.searxng) return "searxng";
+	if (available.firecrawl) return "firecrawl";
 	if (available.exa) return "exa";
 	if (available.brave) return "brave";
 	if (available.parallel) return "parallel";
@@ -243,6 +252,12 @@ function resolveProvider(
 	}
 	if (provider === "openai" && !available.openai) {
 		return firstAvailableProvider(available, false, "openai");
+	}
+	if (provider === "searxng" && !available.searxng) {
+		return firstAvailableProvider(available, preferOpenAI, "searxng");
+	}
+	if (provider === "firecrawl" && !available.firecrawl) {
+		return firstAvailableProvider(available, preferOpenAI, "firecrawl");
 	}
 	if (provider === "brave" && !available.brave) {
 		return firstAvailableProvider(available, preferOpenAI, "brave");
@@ -1255,7 +1270,7 @@ export default function (pi: ExtensionAPI) {
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(
-				StringEnum(["auto", "openai", "brave", "parallel", "tavily", "exa", "perplexity", "gemini"], { description: "Search provider (default: auto)" }),
+				StringEnum(["auto", "openai", "brave", "parallel", "tavily", "exa", "perplexity", "gemini", "searxng", "firecrawl"], { description: "Search provider (default: auto)" }),
 			),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
