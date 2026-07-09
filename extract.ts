@@ -9,6 +9,8 @@ import { extractGitHub } from "./github-extract.ts";
 import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, extractYouTubeFrames, getYouTubeStreamInfo } from "./youtube-extract.ts";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
+import { isBrightDataAvailable, scrapeWithBrightData } from "./brightdata.ts";
+import { detectBrightDataFeed, fetchBrightDataFeed } from "./brightdata-feeds.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { fetchRemoteUrl, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
@@ -425,6 +427,19 @@ export async function extractContent(
 		}
 	}
 
+	// Structured platform feeds (Amazon/Reddit/npm/PyPI/…). Only runs when a
+	// Bright Data key is configured; github URLs are handled by the clone path
+	// above, so they never reach here. Falls through to normal extraction if the
+	// snapshot job fails or times out.
+	if (isBrightDataAvailable()) {
+		const feed = detectBrightDataFeed(url);
+		if (feed) {
+			const feedResult = await fetchBrightDataFeed(url, feed, signal);
+			if (feedResult) return feedResult;
+			if (signal?.aborted) return abortedResult(url);
+		}
+	}
+
 	const ytInfo = isYouTubeURL(url);
 	let youtubeEnabled = false;
 	try {
@@ -460,6 +475,13 @@ export async function extractContent(
 
 	const jinaResult = await extractWithJinaReader(url, signal, options?.lookup);
 	if (jinaResult) return jinaResult;
+	if (signal?.aborted) return abortedResult(url);
+
+	// Web Unlocker: the strongest unblocker (bypasses CAPTCHA / bot detection),
+	// tried after the free HTTP + Jina paths and before Parallel/Gemini. Only
+	// runs when a Bright Data key is configured; returns null to fall through.
+	const brightDataResult = await scrapeWithBrightData(url, signal);
+	if (brightDataResult) return brightDataResult;
 	if (signal?.aborted) return abortedResult(url);
 
 	let parallelError: string | null = null;

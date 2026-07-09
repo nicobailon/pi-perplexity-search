@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added Bright Data provider support (opt-in via `brightdataApiKey` / `BRIGHTDATA_API_TOKEN`), spanning three surfaces with no new tools:
+  - `web_search` SERP provider (`provider: "brightdata"`) and `auto`-chain fallback.
+  - `fetch_content` Web Unlocker fallback for bot-blocked / CAPTCHA pages, tried after the direct-HTTP and Jina paths and before Parallel/Gemini.
+  - Structured platform feeds: supported URLs (Amazon, Reddit, npm, PyPI) auto-route through `fetch_content` to Bright Data dataset snapshots and return structured JSON. The router is data-driven (`brightdata-feeds.ts`), so additional feeds are a single-entry change. Unlocker zone is configurable via `brightdataZone` / `BRIGHTDATA_ZONE` (default `mcp_unlocker`).
+
 ## [0.13.0] - 2026-06-25
 
 ### Added

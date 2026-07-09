@@ -1,3 +1,6 @@
 node_modules/
 bun.lock
 package-lock.json
+
+# Vendored Bright Data reference material (docs/CLI/skills) — not part of the package
+BRIGHT DATA DOCS/

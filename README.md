@@ -36,11 +36,22 @@ Works immediately with no API keys — Exa MCP provides zero-config search. If P
   "braveApiKey": "BSA_...",
   "exaApiKey": "exa-...",
   "perplexityApiKey": "pplx-...",
-  "geminiApiKey": "AIza..."
+  "geminiApiKey": "AIza...",
+  "brightdataApiKey": "brd-..."
 }
 ```
 
-In `auto` mode (default), `web_search` tries OpenAI when suitable and available, then Exa (direct API if keyed, MCP if not), Brave, Parallel, Tavily, Perplexity, Gemini API, then Gemini Web when browser-cookie access is enabled.
+In `auto` mode (default), `web_search` tries OpenAI when suitable and available, then Exa (direct API if keyed, MCP if not), Brave, Parallel, Tavily, Perplexity, Bright Data, Gemini API, then Gemini Web when browser-cookie access is enabled.
+
+### Bright Data (optional)
+
+With a `brightdataApiKey` set, Bright Data adds two capabilities on top of the existing tools — no new tools, no change to zero-config behavior when the key is absent:
+
+- **SERP search** — `web_search({ provider: "brightdata" })`, and a step in the `auto` chain.
+- **Web Unlocker fetch fallback** — `fetch_content` routes bot-blocked / CAPTCHA pages through Bright Data's Unlocker (tried after the free HTTP and Jina paths, before Parallel/Gemini).
+- **Structured platform feeds** — when `fetch_content` receives a supported platform URL (Amazon, Reddit, npm, PyPI), it returns structured JSON instead of scraped markdown. The router is data-driven, so more of Bright Data's feeds can be enabled by adding a single entry in `brightdata-feeds.ts`.
+
+Config: `brightdataApiKey` in `~/.pi/web-search.json` or `BRIGHTDATA_API_TOKEN` env var. Bright Data uses separate zone types — set the Web Unlocker zone with `brightdataUnlockerZone` / `BRIGHTDATA_UNLOCKER_ZONE` (default `mcp_unlocker`, also accepts legacy `brightdataZone` / `BRIGHTDATA_ZONE`) and, optionally, a dedicated SERP zone with `brightdataSerpZone` / `BRIGHTDATA_SERP_ZONE` (falls back to the Unlocker zone). Structured feeds are asynchronous snapshot jobs, so they add latency; a request that does not resolve in time falls through to normal extraction.
 
 Optional dependencies for video frame extraction:
 
@@ -96,7 +107,7 @@ web_search({ queries: ["query 1", "query 2"], workflow: "auto-summary" })
 | `numResults` | Results per query (default: 5, max: 20) |
 | `recencyFilter` | `day`, `week`, `month`, or `year` |
 | `domainFilter` | Limit to domains (prefix with `-` to exclude) |
-| `provider` | `auto` (default), `openai`, `brave`, `parallel`, `tavily`, `exa`, `perplexity`, or `gemini` |
+| `provider` | `auto` (default), `openai`, `brave`, `parallel`, `tavily`, `exa`, `perplexity`, `gemini`, or `brightdata` |
 | `includeContent` | Fetch full page content from sources in background |
 | `workflow` | `none` (skip curator), `summary-review` (open curator and auto-generate a summary draft, default), or `auto-summary` (generate a summary without opening the curator) |
 

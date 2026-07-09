@@ -8,7 +8,7 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; perplexity: boolean; exa: boolean; gemini: boolean },
+	available: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; perplexity: boolean; exa: boolean; gemini: boolean; brightdata: boolean },
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
@@ -19,6 +19,7 @@ function buildProviderButtons(
 		{ value: "parallel", label: "Parallel", available: available.parallel },
 		{ value: "tavily", label: "Tavily", available: available.tavily },
 		{ value: "perplexity", label: "Perplexity", available: available.perplexity },
+		{ value: "brightdata", label: "Bright Data", available: available.brightdata },
 		{ value: "gemini", label: "Gemini", available: available.gemini },
 	];
 
@@ -38,7 +39,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; perplexity: boolean; exa: boolean; gemini: boolean },
+	availableProviders: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; perplexity: boolean; exa: boolean; gemini: boolean; brightdata: boolean },
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
@@ -665,6 +666,11 @@ main {
   color: #a6e3a1;
   background: rgba(166, 227, 161, 0.14);
   border-color: rgba(166, 227, 161, 0.3);
+}
+.provider-tag.provider-brightdata {
+  color: #f9e2af;
+  background: rgba(249, 226, 175, 0.14);
+  border-color: rgba(249, 226, 175, 0.3);
 }
 .provider-tag.provider-unknown {
   color: var(--fg-muted);
@@ -1389,7 +1395,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["openai", "exa", "brave", "parallel", "tavily", "perplexity", "gemini"];
+  var providers = ["openai", "exa", "brave", "parallel", "tavily", "perplexity", "brightdata", "gemini"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1595,6 +1601,7 @@ const SCRIPT = `(function() {
     if (provider === "tavily") return "Tavily";
     if (provider === "perplexity") return "Perplexity";
     if (provider === "exa") return "Exa";
+    if (provider === "brightdata") return "Bright Data";
     if (provider === "gemini") return "Gemini";
     return "Unknown";
   }
