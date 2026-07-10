@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { StringEnum, complete, type Model } from "@earendil-works/pi-ai/compat";
-import { fetchAllContent, type ExtractedContent } from "./extract.ts";
+import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { clearCloneCache } from "./github-extract.ts";
 import { search, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
@@ -46,6 +46,16 @@ import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } f
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
+
+let extractModulePromise: Promise<typeof import("./extract.ts")> | undefined;
+async function fetchAllContent(
+	urls: string[],
+	signal?: AbortSignal,
+	options?: ExtractOptions,
+): Promise<ExtractedContent[]> {
+	const extractModule = await (extractModulePromise ??= import("./extract.ts"));
+	return extractModule.fetchAllContent(urls, signal, options);
+}
 
 /** Shared collapsed/expanded renderer for an error/cancel plan produced by
  * buildSearchErrorPlan(). Used by every tool renderResult's error branch so
