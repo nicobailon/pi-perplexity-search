@@ -16,6 +16,7 @@ const AUTH_MODEL_CANDIDATES = [
 
 interface WebSearchConfig {
 	openaiApiKey?: unknown;
+	searchModel?: unknown;
 }
 
 interface OpenAIAuth {
@@ -115,7 +116,52 @@ function extractAccountId(token: string): string | undefined {
 	return typeof id === "string" && id.trim().length > 0 ? id.trim() : undefined;
 }
 
+// A `searchModel` value in `provider/model-id` form pins the OpenAI/Codex search
+// model. A bare value (no slash) is a Gemini model id and is ignored here. When a
+// model is pinned this way, selection is strict: if it can't be authenticated we
+// report OpenAI search as unavailable rather than silently substituting another model.
+function parseConfiguredSearchModel(): { provider: "openai-codex" | "openai"; id: string } | null {
+	const raw = loadConfig().searchModel;
+	if (typeof raw !== "string") return null;
+	const trimmed = raw.trim();
+	const slashIndex = trimmed.indexOf("/");
+	if (slashIndex <= 0 || slashIndex >= trimmed.length - 1) return null;
+	const provider = trimmed.slice(0, slashIndex);
+	if (provider !== "openai-codex" && provider !== "openai") return null;
+	return { provider, id: trimmed.slice(slashIndex + 1) };
+}
+
 export async function resolveOpenAIAuth(ctx?: ExtensionContext): Promise<OpenAIAuth | undefined> {
+	const configured = parseConfiguredSearchModel();
+
+	if (configured) {
+		// Strict: honor exactly the configured provider/model, or report unavailable.
+		if (ctx) {
+			const { getModel } = await import("@earendil-works/pi-ai/compat");
+			const model = getModel(configured.provider, configured.id);
+			if (model) {
+				try {
+					const resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+					if (resolved.ok && resolved.apiKey) {
+						return {
+							provider: configured.provider,
+							apiKey: resolved.apiKey,
+							model: configured.id,
+							headers: resolved.headers ?? {},
+						};
+					}
+				} catch {
+				}
+			}
+		}
+		// The API-key fallback only reaches the plain OpenAI endpoint, never Codex.
+		if (configured.provider === "openai") {
+			const apiKey = normalizeApiKey(process.env.OPENAI_API_KEY) ?? normalizeApiKey(loadConfig().openaiApiKey);
+			if (apiKey) return { provider: "openai", apiKey, model: configured.id, headers: {} };
+		}
+		return undefined;
+	}
+
 	if (ctx) {
 		const { getModel } = await import("@earendil-works/pi-ai/compat");
 		for (const candidate of AUTH_MODEL_CANDIDATES) {
