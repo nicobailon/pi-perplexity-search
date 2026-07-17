@@ -18,6 +18,17 @@ test("fetch tools remain registered outside the web_search gate", () => {
 	assert.match(indexSrc, /\n\t}\);\n\n\tpi\.registerTool\(\{\n\t\tname: "fetch_content"/);
 });
 
+test("web activity widget uses a supported component factory", () => {
+	assert.match(
+		indexSrc,
+		/ctx\.ui\.setWidget\("web-activity", \(\) => new Text\(lines\.join\("\\n"\), 0, 0\)\);/,
+	);
+	assert.doesNotMatch(
+		indexSrc,
+		/ctx\.ui\.setWidget\("web-activity", new Text/,
+	);
+});
+
 test("README documents webSearch.enabled", () => {
 	assert.match(readmeSrc, /"webSearch": \{\n    "enabled": true\n  \}/);
 	assert.match(readmeSrc, /webSearch\.enabled` to `false` to unregister the `web_search` tool/);
