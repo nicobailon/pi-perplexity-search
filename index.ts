@@ -964,6 +964,21 @@ export default function (pi: ExtensionAPI) {
 	async function openCuratorBrowser(callId: string, pc: PendingCurate, searchesComplete = true): Promise<void> {
 		if (pendingCurates.get(callId) !== pc) return;
 		let handle: CuratorServerHandle | null = null;
+		// Hoisted out of try so the catch path can call it (const in try is not visible in catch).
+		const sendCuratorFallbackUpdate = (message: string) => {
+			if (!handle) return;
+			pc.onUpdate?.({
+				content: [{ type: "text", text: `${message}\nOpen manually: ${handle.url}` }],
+				details: {
+					phase: "curator-fallback",
+					progress: searchesComplete ? 1 : 0.5,
+					curatorUrl: handle.url,
+					timeoutSeconds: pc.timeoutSeconds,
+					shortcut: curateKey,
+					browserOpenError: pc.browserOpenError,
+				},
+			});
+		};
 		try {
 			pc.phase = "curating";
 
@@ -1135,20 +1150,6 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			if (searchesComplete) handle.searchesDone();
-
-			const sendCuratorFallbackUpdate = (message: string) => {
-				pc.onUpdate?.({
-					content: [{ type: "text", text: `${message}\nOpen manually: ${handle.url}` }],
-					details: {
-						phase: "curator-fallback",
-						progress: searchesComplete ? 1 : 0.5,
-						curatorUrl: handle.url,
-						timeoutSeconds: pc.timeoutSeconds,
-						shortcut: curateKey,
-						browserOpenError: pc.browserOpenError,
-					},
-				});
-			};
 
 			pc.onUpdate?.({
 				content: [{ type: "text", text: searchesComplete ? "Waiting for summary approval in browser..." : "Searches streaming to browser..." }],
