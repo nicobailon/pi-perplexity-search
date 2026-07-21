@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { hasCredentialSource, redactCredential, resolveCredential } from "./credential-source.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
 const DEFAULT_API_HOST = "https://generativelanguage.googleapis.com";
@@ -53,8 +54,13 @@ function isCloudflareGateway(): boolean {
 	return getApiHost().includes("gateway.ai.cloudflare.com");
 }
 
-export function getApiKey(): string | null {
-	return normalizeApiKey(process.env.GEMINI_API_KEY) ?? normalizeApiKey(loadConfig().geminiApiKey);
+export async function getApiKey(signal?: AbortSignal): Promise<string | null> {
+	return resolveCredential({
+		provider: "Gemini",
+		configuredValue: loadConfig().geminiApiKey,
+		environmentValue: process.env.GEMINI_API_KEY,
+		signal,
+	});
 }
 
 export function getApiHost(): string {
@@ -69,11 +75,6 @@ export function getVersionedApiBase(): string {
 	return `${getApiHost()}/${API_VERSION}`;
 }
 
-export function buildKeyParam(apiKey: string | null): string {
-	if (!apiKey || isCloudflareGateway()) return "";
-	return `?key=${apiKey}`;
-}
-
 export function getCloudflareApiKey(): string | null {
 	return normalizeApiKey(process.env.CLOUDFLARE_API_KEY) ?? normalizeApiKey(loadConfig().cloudflareApiKey);
 }
@@ -82,17 +83,59 @@ export function isGatewayConfigured(): boolean {
 	return isCloudflareGateway() && getCloudflareApiKey() !== null;
 }
 
-export function buildAuthHeaders(): Record<string, string> {
-	if (!isCloudflareGateway()) return {};
+export function buildAuthHeaders(apiKey: string | null = null): Record<string, string> {
+	if (!isCloudflareGateway()) return apiKey ? { "x-goog-api-key": apiKey } : {};
 	const cloudflareApiKey = getCloudflareApiKey();
 	return cloudflareApiKey ? { "cf-aig-authorization": `Bearer ${cloudflareApiKey}` } : {};
 }
 
+export async function fetchGeminiApi(
+	url: string | URL,
+	init: RequestInit = {},
+	apiKey?: string | null,
+): Promise<Response> {
+	const parsedUrl = new URL(url);
+	for (const name of parsedUrl.searchParams.keys()) {
+		if (["key", "api_key"].includes(name.toLowerCase())) {
+			throw new Error("Gemini API credential query parameters are not allowed");
+		}
+	}
+	const resolvedApiKey = apiKey === undefined ? await getApiKey(init.signal ?? undefined) : apiKey;
+	const allowedOrigins = new Set([
+		new URL(getApiHost()).origin,
+		new URL(DEFAULT_API_HOST).origin,
+	]);
+	if ((resolvedApiKey || isGatewayConfigured()) && !allowedOrigins.has(parsedUrl.origin)) {
+		throw new Error("Gemini API request host is not allowed");
+	}
+	const headers = new Headers(init.headers);
+	headers.delete("x-goog-api-key");
+	headers.delete("cf-aig-authorization");
+	for (const [name, value] of Object.entries(buildAuthHeaders(resolvedApiKey))) {
+		headers.set(name, value);
+	}
+	try {
+		return await fetch(parsedUrl, { ...init, headers });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		const redactedMessage = redactCredential(message, resolvedApiKey);
+		if (redactedMessage === message) throw error;
+		const redactedError = new Error(redactedMessage);
+		if (error instanceof Error) redactedError.name = error.name;
+		throw redactedError;
+	}
+}
+
 export function isGeminiApiAvailable(): boolean {
-	return getApiKey() !== null || isGatewayConfigured();
+	return hasCredentialSource({
+		provider: "Gemini",
+		configuredValue: loadConfig().geminiApiKey,
+		environmentValue: process.env.GEMINI_API_KEY,
+	}) || isGatewayConfigured();
 }
 
 export interface GeminiApiOptions {
+	apiKey?: string;
 	model?: string;
 	mimeType?: string;
 	signal?: AbortSignal;
@@ -104,18 +147,18 @@ export async function queryGeminiApiWithVideo(
 	videoUri: string,
 	options: GeminiApiOptions = {},
 ): Promise<string> {
-	const apiKey = getApiKey();
+	const signal = withTimeout(options.signal, options.timeoutMs ?? 120000);
+	const apiKey = options.apiKey ?? await getApiKey(signal);
 	if (!apiKey && !isGatewayConfigured()) {
 		throw new Error(
 			"Gemini API not configured. Either:\n" +
-			`  1. Set GEMINI_API_KEY in ${CONFIG_PATH}\n` +
+			`  1. Configure geminiApiKey in ${CONFIG_PATH} or set GEMINI_API_KEY\n` +
 			"  2. Set GOOGLE_GEMINI_BASE_URL + CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing"
 		);
 	}
 
 	const model = options.model ?? DEFAULT_MODEL;
-	const signal = withTimeout(options.signal, options.timeoutMs ?? 120000);
-	const url = `${getVersionedApiBase()}/models/${model}:generateContent${buildKeyParam(apiKey)}`;
+	const url = `${getVersionedApiBase()}/models/${model}:generateContent`;
 
 	const fileData: Record<string, string> = { fileUri: videoUri };
 	if (options.mimeType) fileData.mimeType = options.mimeType;
@@ -132,15 +175,15 @@ export async function queryGeminiApiWithVideo(
 		],
 	};
 
-	const res = await fetch(url, {
+	const res = await fetchGeminiApi(url, {
 		method: "POST",
-		headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
+		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
 		signal,
-	});
+	}, apiKey);
 
 	if (!res.ok) {
-		const errorText = await res.text();
+		const errorText = redactCredential(await res.text(), apiKey);
 		throw new Error(`Gemini API error ${res.status}: ${errorText.slice(0, 300)}`);
 	}
 

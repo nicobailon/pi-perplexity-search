@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added request-time `$ENV_VAR` and `!command` credential sources for Exa and Gemini API configuration, with bounded output, redacted failures, and strict source precedence.
+
+### Changed
+- Send direct Gemini API credentials in `x-goog-api-key` headers for generate, upload, status, and delete requests instead of URL query parameters.
+
 ## [0.13.0] - 2026-06-25
 
 ### Added

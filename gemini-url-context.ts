@@ -1,5 +1,6 @@
 import { activityMonitor } from "./activity.ts";
-import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeaders, isGatewayConfigured, DEFAULT_MODEL } from "./gemini-api.ts";
+import { CredentialResolutionError } from "./credential-source.ts";
+import { getApiKey, getVersionedApiBase, fetchGeminiApi, isGatewayConfigured, DEFAULT_MODEL } from "./gemini-api.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { extractHeadingTitle, type ExtractedContent } from "./extract.ts";
 
@@ -11,14 +12,18 @@ URL: `;
 
 function shouldRethrow(err: unknown): boolean {
 	const message = err instanceof Error ? err.message : String(err);
-	return message.startsWith("Failed to parse ");
+	return err instanceof CredentialResolutionError || message.startsWith("Failed to parse ");
 }
 
 export async function extractWithUrlContext(
 	url: string,
 	signal?: AbortSignal,
 ): Promise<ExtractedContent | null> {
-	const apiKey = getApiKey();
+	const requestSignal = AbortSignal.any([
+		AbortSignal.timeout(60000),
+		...(signal ? [signal] : []),
+	]);
+	const apiKey = await getApiKey(requestSignal);
 	if (!apiKey && !isGatewayConfigured()) return null;
 
 	const activityId = activityMonitor.logStart({ type: "api", query: `url_context: ${url}` });
@@ -30,15 +35,12 @@ export async function extractWithUrlContext(
 			tools: [{ url_context: {} }],
 		};
 
-		const res = await fetch(`${getVersionedApiBase()}/models/${model}:generateContent${buildKeyParam(apiKey)}`, {
+		const res = await fetchGeminiApi(`${getVersionedApiBase()}/models/${model}:generateContent`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
-			signal: AbortSignal.any([
-				AbortSignal.timeout(60000),
-				...(signal ? [signal] : []),
-			]),
-		});
+			signal: requestSignal,
+		}, apiKey);
 
 		if (!res.ok) {
 			activityMonitor.logComplete(activityId, res.status);

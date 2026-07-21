@@ -7,6 +7,7 @@ import { extractRSCContent } from "./rsc-extract.ts";
 import { extractPDFToMarkdown, isPDF } from "./pdf-extract.ts";
 import { extractGitHub } from "./github-extract.ts";
 import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, extractYouTubeFrames, getYouTubeStreamInfo } from "./youtube-extract.ts";
+import { CredentialResolutionError } from "./credential-source.ts";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
@@ -483,7 +484,7 @@ export async function extractContent(
 			?? await extractWithGeminiWeb(url, signal);
 	} catch (err) {
 		if (isAbortError(err)) return abortedResult(url);
-		if (isConfigParseError(err)) {
+		if (err instanceof CredentialResolutionError || isConfigParseError(err)) {
 			return { ...httpResult, error: errorMessage(err) };
 		}
 	}

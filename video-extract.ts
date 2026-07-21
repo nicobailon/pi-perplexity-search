@@ -3,8 +3,9 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve, extname, basename, join, dirname } from "node:path";
 import { activityMonitor } from "./activity.ts";
+import { redactCredential } from "./credential-source.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
-import { queryGeminiApiWithVideo, getApiKey, API_BASE } from "./gemini-api.ts";
+import { queryGeminiApiWithVideo, getApiKey, fetchGeminiApi, API_BASE } from "./gemini-api.ts";
 import { extractHeadingTitle, type ExtractedContent, type ExtractOptions, type FrameResult } from "./extract.ts";
 import { readExecError, trimErrorText, mapFfmpegError, getWebSearchConfigPath } from "./utils.ts";
 
@@ -259,7 +260,7 @@ async function tryVideoGeminiApi(
 	model: string,
 	signal?: AbortSignal,
 ): Promise<ExtractedContent | null> {
-	const apiKey = getApiKey();
+	const apiKey = await getApiKey(signal);
 	if (!apiKey) return null;
 	if (signal?.aborted) return null;
 
@@ -271,6 +272,7 @@ async function tryVideoGeminiApi(
 		await pollFileState(fileName, apiKey, signal, 120000);
 
 		const text = await queryGeminiApiWithVideo(prompt, uploaded.uri, {
+			apiKey,
 			model,
 			mimeType: info.mimeType,
 			signal,
@@ -298,10 +300,9 @@ async function uploadToFilesApi(
 ): Promise<{ name: string; uri: string }> {
 	const displayName = basename(info.absolutePath);
 
-	const initRes = await fetch(`${UPLOAD_BASE}/files`, {
+	const initRes = await fetchGeminiApi(`${UPLOAD_BASE}/files`, {
 		method: "POST",
 		headers: {
-			"x-goog-api-key": apiKey,
 			"X-Goog-Upload-Protocol": "resumable",
 			"X-Goog-Upload-Command": "start",
 			"X-Goog-Upload-Header-Content-Length": String(info.sizeBytes),
@@ -310,10 +311,10 @@ async function uploadToFilesApi(
 		},
 		body: JSON.stringify({ file: { display_name: displayName } }),
 		signal,
-	});
+	}, apiKey);
 
 	if (!initRes.ok) {
-		const text = await initRes.text();
+		const text = redactCredential(await initRes.text(), apiKey);
 		throw new Error(`File upload init failed: ${initRes.status} (${text.slice(0, 200)})`);
 	}
 
@@ -321,7 +322,7 @@ async function uploadToFilesApi(
 	if (!uploadUrl) throw new Error("No upload URL in response headers");
 
 	const fileData = await readFile(info.absolutePath);
-	const uploadRes = await fetch(uploadUrl, {
+	const uploadRes = await fetchGeminiApi(uploadUrl, {
 		method: "PUT",
 		headers: {
 			"Content-Length": String(info.sizeBytes),
@@ -330,10 +331,10 @@ async function uploadToFilesApi(
 		},
 		body: fileData,
 		signal,
-	});
+	}, apiKey);
 
 	if (!uploadRes.ok) {
-		const text = await uploadRes.text();
+		const text = redactCredential(await uploadRes.text(), apiKey);
 		throw new Error(`File upload failed: ${uploadRes.status} (${text.slice(0, 200)})`);
 	}
 
@@ -352,7 +353,7 @@ async function pollFileState(
 	while (Date.now() < deadline) {
 		if (signal?.aborted) throw new Error("Aborted");
 
-		const res = await fetch(`${API_BASE}/${fileName}?key=${apiKey}`, { signal });
+		const res = await fetchGeminiApi(`${API_BASE}/${fileName}`, { signal }, apiKey);
 		if (!res.ok) throw new Error(`File state check failed: ${res.status}`);
 
 		const data = await res.json() as { state: string };
@@ -366,7 +367,7 @@ async function pollFileState(
 }
 
 function deleteGeminiFile(fileName: string, apiKey: string): void {
-	fetch(`${API_BASE}/${fileName}?key=${apiKey}`, { method: "DELETE" }).catch((err) => {
+	void fetchGeminiApi(`${API_BASE}/${fileName}`, { method: "DELETE" }, apiKey).catch((err) => {
 		const message = err instanceof Error ? err.message : String(err);
 		console.error(`Failed to delete Gemini file ${fileName}: ${message}`);
 	});
