@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Added request-time `$ENV_VAR` and `!command` credential sources for Exa and Gemini API configuration, with bounded output, redacted failures, and strict source precedence.
+- Added request-time `$ENV_VAR` and `!command` credential sources for Exa and Gemini API configuration, with bounded output, redacted failures, strict source precedence, and shell-local 1Password session forwarding limited to the resolver command.
 
 ### Changed
 - Send direct Gemini API credentials in `x-goog-api-key` headers for generate, upload, status, and delete requests instead of URL query parameters.

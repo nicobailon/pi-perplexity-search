@@ -5,6 +5,7 @@ const execAsync = promisify(exec);
 const COMMAND_TIMEOUT_MS = 5_000;
 const MAX_CREDENTIAL_BYTES = 16_384;
 const ENV_SOURCE = /^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$/;
+const OP_SESSION_NAME = /^OP_SESSION_[A-Za-z0-9_]+$/;
 const COMMAND_ENVIRONMENT_NAMES = [
 	"HOME",
 	"USER",
@@ -86,6 +87,9 @@ function commandEnvironment(source: Record<string, string | undefined>): Record<
 	for (const name of COMMAND_ENVIRONMENT_NAMES) {
 		const value = source[name];
 		if (value !== undefined) environment[name] = value;
+	}
+	for (const [name, value] of Object.entries(source)) {
+		if (value !== undefined && OP_SESSION_NAME.test(name)) environment[name] = value;
 	}
 	return environment;
 }

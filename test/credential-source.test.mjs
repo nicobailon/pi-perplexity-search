@@ -39,7 +39,11 @@ test("command sources override stale values, remain lazy, and rotate per resolut
 	const runCommand = async (command, runOptions) => {
 		calls += 1;
 		assert.equal(command, "/trusted/read synthetic");
-		assert.deepEqual(runOptions.environment, { HOME: "/synthetic/home", PATH: "/usr/bin:/bin" });
+		assert.deepEqual(runOptions.environment, {
+			HOME: "/synthetic/home",
+			PATH: "/usr/bin:/bin",
+			OP_SESSION_my: "synthetic-password-manager-session",
+		});
 		return { stdout: calls === 1 ? "first-value\n" : "second-value\n" };
 	};
 	const commandOptions = {
@@ -49,6 +53,8 @@ test("command sources override stale values, remain lazy, and rotate per resolut
 			HOME: "/synthetic/home",
 			PATH: "/usr/bin:/bin",
 			EXA_API_KEY: "stale-provider-key-must-not-reach-command",
+			OP_SESSION_my: "synthetic-password-manager-session",
+			OP_SERVICE_ACCOUNT_TOKEN: "must-not-reach-command",
 			NODE_OPTIONS: "--require=untrusted.js",
 		},
 	};
