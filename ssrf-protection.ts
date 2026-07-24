@@ -108,11 +108,19 @@ function assertPublicAddress(address: string, hostname: string, allowRanges: Par
 	// users exempt synthetic ranges produced by TUN/fake-IP proxies (e.g. 198.18/15).
 	if (isInAllowedRange(normalized, ipVersion, allowRanges)) return;
 	if (ipVersion === 4 && isBlockedIPv4(normalized)) {
-		throw new Error(`Blocked internal address for ${hostname}: ${normalized}`);
+		const hint = isFakeIpProxyAddress(normalized)
+			? '. This address is in 198.18.0.0/15, commonly used by TUN/fake-IP proxies. If that matches your setup, configure ssrf.allowRanges with ["198.18.0.0/15"] in web-search.json.'
+			: "";
+		throw new Error(`Blocked internal address for ${hostname}: ${normalized}${hint}`);
 	}
 	if (ipVersion === 6 && isBlockedIPv6(normalized)) {
 		throw new Error(`Blocked internal address for ${hostname}: ${normalized}`);
 	}
+}
+
+function isFakeIpProxyAddress(address: string): boolean {
+	const [a, b] = address.split(".").map(part => Number(part));
+	return a === 198 && (b === 18 || b === 19);
 }
 
 function isBlockedIPv4(address: string): boolean {
@@ -126,7 +134,7 @@ function isBlockedIPv4(address: string): boolean {
 		(a === 169 && b === 254) ||
 		(a === 172 && b >= 16 && b <= 31) ||
 		(a === 192 && b === 168) ||
-		(a === 198 && (b === 18 || b === 19)) ||
+		isFakeIpProxyAddress(address) ||
 		a >= 224;
 }
 

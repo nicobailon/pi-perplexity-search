@@ -92,6 +92,15 @@ test("fetchRemoteUrl follows validated public redirects manually", async () => {
 	assert.deepEqual(requested, ["https://example.com/start", "https://example.com/next"]);
 });
 
+test("fake-IP block errors point to the allowRanges opt-in", async () => {
+	const fakeIpLookup = async () => [{ address: "198.18.0.56", family: 4 }];
+
+	await assert.rejects(
+		validateRemoteUrl("https://example.test/", { lookup: fakeIpLookup }),
+		/Blocked internal address for example\.test: 198\.18\.0\.56\..*TUN\/fake-IP proxies.*ssrf\.allowRanges.*198\.18\.0\.0\/15/,
+	);
+});
+
 test("allowRanges exempts a synthetic fake-IP range (e.g. 198.18.0.0/15)", async () => {
 	const fakeIpLookup = async () => [{ address: "198.18.0.56", family: 4 }];
 
