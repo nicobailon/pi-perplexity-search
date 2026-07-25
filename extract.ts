@@ -10,6 +10,7 @@ import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, ex
 import { CredentialResolutionError } from "./credential-source.ts";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
+import { extractWithTinyFish, isTinyFishAvailable } from "./tinyfish.ts";
 import { extractWithFirecrawl, isFirecrawlAvailable } from "./firecrawl.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
@@ -479,6 +480,21 @@ export async function extractContent(
 	if (jinaResult) return jinaResult;
 	if (signal?.aborted) return abortedResult(url);
 
+	let tinyfishError: string | null = null;
+	try {
+		if (isTinyFishAvailable()) {
+			const tinyfishResult = await extractWithTinyFish(url, signal, options);
+			if (tinyfishResult) return tinyfishResult;
+		}
+	} catch (err) {
+		if (isAbortError(err)) return abortedResult(url);
+		tinyfishError = errorMessage(err);
+		if (isConfigParseError(err)) {
+			return { ...httpResult, error: tinyfishError };
+		}
+	}
+	if (signal?.aborted) return abortedResult(url);
+
 	let parallelError: string | null = null;
 	try {
 		if (isParallelAvailable()) {
@@ -511,11 +527,13 @@ export async function extractContent(
 	const guidance = [
 		httpResult.error,
 		...(firecrawlError ? [`Firecrawl fallback failed: ${firecrawlError}`] : []),
+		...(tinyfishError ? [`TinyFish fallback failed: ${tinyfishError}`] : []),
 		...(parallelError ? [`Parallel fallback failed: ${parallelError}`] : []),
 		"",
 		"Fallback options:",
 		`  \u2022 Set firecrawlBaseUrl in ${WEB_SEARCH_CONFIG_PATH} to a self-hosted Firecrawl instance`,
-		`  \u2022 Set PARALLEL_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
+		`  \u2022 Set tinyfishApiKey in ${WEB_SEARCH_CONFIG_PATH} or TINYFISH_API_KEY`,
+		`  \u2022 Set parallelApiKey in ${WEB_SEARCH_CONFIG_PATH} or PARALLEL_API_KEY`,
 		`  \u2022 Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
 		"  \u2022 Sign into gemini.google.com in Chrome",
 		"  \u2022 Use web_search to find content about this topic",

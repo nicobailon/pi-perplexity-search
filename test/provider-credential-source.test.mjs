@@ -10,6 +10,7 @@ const braveModuleUrl = new URL("../brave.ts", import.meta.url).href;
 const geminiApiModuleUrl = new URL("../gemini-api.ts", import.meta.url).href;
 const openaiModuleUrl = new URL("../openai-search.ts", import.meta.url).href;
 const parallelModuleUrl = new URL("../parallel.ts", import.meta.url).href;
+const tinyfishModuleUrl = new URL("../tinyfish.ts", import.meta.url).href;
 const perplexityModuleUrl = new URL("../perplexity.ts", import.meta.url).href;
 const tavilyModuleUrl = new URL("../tavily.ts", import.meta.url).href;
 
@@ -32,6 +33,7 @@ function runChild(script, env) {
 		"GOOGLE_GEMINI_BASE_URL",
 		"OPENAI_API_KEY",
 		"PARALLEL_API_KEY",
+		"TINYFISH_API_KEY",
 		"PERPLEXITY_API_KEY",
 		"TAVILY_API_KEY",
 	]) delete childEnv[key];
@@ -118,6 +120,7 @@ test("provider API errors redact resolved credential-source values", async () =>
 		geminiBaseUrl: "https://gateway.ai.cloudflare.com/v1/account/gateway/google-ai-studio",
 		openaiApiKey: "!printf openai-redaction-secret",
 		parallelApiKey: "!printf parallel-redaction-secret",
+		tinyfishApiKey: "!printf tinyfish-redaction-secret",
 		perplexityApiKey: "!printf perplexity-redaction-secret",
 		tavilyApiKey: "!printf tavily-redaction-secret",
 	});
@@ -127,6 +130,7 @@ test("provider API errors redact resolved credential-source values", async () =>
 			geminiApi: await import(${JSON.stringify(geminiApiModuleUrl)}),
 			openai: await import(${JSON.stringify(openaiModuleUrl)}),
 			parallel: await import(${JSON.stringify(parallelModuleUrl)}),
+			tinyfish: await import(${JSON.stringify(tinyfishModuleUrl)}),
 			perplexity: await import(${JSON.stringify(perplexityModuleUrl)}),
 			tavily: await import(${JSON.stringify(tavilyModuleUrl)}),
 		};
@@ -134,6 +138,7 @@ test("provider API errors redact resolved credential-source values", async () =>
 			["brave", "brave-redaction-secret", () => modules.brave.searchWithBrave("query")],
 			["openai", "openai-redaction-secret", () => modules.openai.searchWithOpenAI("query")],
 			["parallel", "parallel-redaction-secret", () => modules.parallel.searchWithParallel("query")],
+			["tinyfish", "tinyfish-redaction-secret", () => modules.tinyfish.searchWithTinyFish("query")],
 			["perplexity", "perplexity-redaction-secret", () => modules.perplexity.searchWithPerplexity("query")],
 			["tavily", "tavily-redaction-secret", () => modules.tavily.searchWithTavily("query")],
 			["cloudflare", "cf-redaction-secret", () => modules.geminiApi.queryGeminiApiWithVideo("prompt", "files/synthetic")],

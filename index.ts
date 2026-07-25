@@ -41,6 +41,7 @@ import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
 import { isBraveAvailable } from "./brave.ts";
 import { isOpenAISearchAvailable } from "./openai-search.ts";
 import { isParallelAvailable } from "./parallel.ts";
+import { isTinyFishAvailable } from "./tinyfish.ts";
 import { isTavilyAvailable } from "./tavily.ts";
 import { isSerpdiveAvailable } from "./serpdive.ts";
 import { isSearXNGAvailable } from "./searxng.ts";
@@ -94,6 +95,7 @@ function renderSearchErrorPlan(plan: SearchErrorPlan, expanded: boolean, theme: 
 
 interface WebSearchConfig {
 	anysearchApiKey?: unknown;
+	tinyfishApiKey?: unknown;
 	provider?: string;
 	searchProvider?: string;
 	workflow?: string;
@@ -119,6 +121,7 @@ interface ProviderAvailability {
 	openai: boolean;
 	brave: boolean;
 	parallel: boolean;
+	tinyfish: boolean;
 	tavily: boolean;
 	serpdive: boolean;
 	searxng: boolean;
@@ -229,7 +232,7 @@ function normalizeProviderInput(value: unknown): SearchProvider | undefined {
 	if (value === undefined) return undefined;
 	if (typeof value !== "string") return "auto";
 	const normalized = value.trim().toLowerCase();
-	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"];
+	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"];
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
@@ -282,6 +285,7 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		openai: await isOpenAISearchAvailable(ctx),
 		brave: isBraveAvailable(),
 		parallel: isParallelAvailable(),
+		tinyfish: isTinyFishAvailable(),
 		tavily: isTavilyAvailable(),
 		serpdive: isSerpdiveAvailable(),
 		searxng: isSearXNGAvailable(),
@@ -320,6 +324,7 @@ function firstAvailableProvider(available: ProviderAvailability, preferOpenAI: b
 	if (available.exa) return "exa";
 	if (available.brave) return "brave";
 	if (available.parallel) return "parallel";
+	if (available.tinyfish) return "tinyfish";
 	if (available.tavily) return "tavily";
 	if (available.serpdive) return "serpdive";
 	if (available.perplexity) return "perplexity";
@@ -353,6 +358,9 @@ function resolveProvider(
 	}
 	if (provider === "parallel" && !available.parallel) {
 		return firstAvailableProvider(available, preferOpenAI, "parallel");
+	}
+	if (provider === "tinyfish" && !available.tinyfish) {
+		return firstAvailableProvider(available, preferOpenAI, "tinyfish");
 	}
 	if (provider === "tavily" && !available.tavily) {
 		return firstAvailableProvider(available, preferOpenAI, "tavily");
@@ -1381,7 +1389,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, Tavily, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, Tavily, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
+			`Search the web using OpenAI, Brave, Parallel, TinyFish, Tavily, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Tavily, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
@@ -1394,7 +1402,7 @@ export default function (pi: ExtensionAPI) {
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(
-				StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider; omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
+				StringEnum(["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider; omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
 			),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
@@ -1941,7 +1949,7 @@ export default function (pi: ExtensionAPI) {
 			fetchContent: Type.Optional(Type.Boolean({ description: "Fetch up to 5 result pages for exact passage extraction." })),
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
-			provider: Type.Optional(StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider." })),
+			provider: Type.Optional(StringEnum(["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider." })),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";

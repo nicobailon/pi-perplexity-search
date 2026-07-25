@@ -21,6 +21,7 @@ function runChild(script, env) {
 		"OPENAI_API_KEY",
 		"BRAVE_API_KEY",
 		"PARALLEL_API_KEY",
+		"TINYFISH_API_KEY",
 		"TAVILY_API_KEY",
 		"SEARXNG_BASE_URL",
 		"EXA_API_KEY",

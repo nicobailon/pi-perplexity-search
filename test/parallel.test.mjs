@@ -20,6 +20,7 @@ function runChild(script, env = {}) {
 	const childEnv = { ...process.env };
 	delete childEnv.PI_CODING_AGENT_DIR;
 	delete childEnv.XDG_CONFIG_HOME;
+	delete childEnv.TINYFISH_API_KEY;
 	Object.assign(childEnv, env);
 	return spawnSync(process.execPath, ["--input-type=module"], {
 		input: script,

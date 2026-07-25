@@ -9,13 +9,14 @@ import { isExaAvailable, searchWithExa } from "./exa.ts";
 import { isBraveAvailable, searchWithBrave } from "./brave.ts";
 import { isOpenAISearchAvailable, searchWithOpenAI } from "./openai-search.ts";
 import { isParallelAvailable, searchWithParallel } from "./parallel.ts";
+import { isTinyFishAvailable, searchWithTinyFish } from "./tinyfish.ts";
 import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
 import { isSerpdiveAvailable, searchWithSerpdive } from "./serpdive.ts";
 import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
 import { isAnySearchAvailable, searchWithAnySearch } from "./anysearch.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "searxng" | "perplexity" | "gemini" | "exa" | "serpdive" | "anysearch";
+export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tinyfish" | "tavily" | "searxng" | "perplexity" | "gemini" | "exa" | "serpdive" | "anysearch";
 export type ResolvedSearchProvider = Exclude<SearchProvider, "auto">;
 export type SearchProviderErrorKind =
 	| "transient"
@@ -62,7 +63,7 @@ export interface AttributedSearchResponse extends SearchResponse {
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-2.5-flash";
-const VALID_SEARCH_PROVIDERS: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch"];
+const VALID_SEARCH_PROVIDERS: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network"] as const;
 
 type SearchConfig = {
@@ -262,6 +263,7 @@ async function searchWithResolvedProvider(
 	}
 	if (provider === "brave") return { ...(await searchWithBrave(query, options)), provider };
 	if (provider === "parallel") return { ...(await searchWithParallel(query, options)), provider };
+	if (provider === "tinyfish") return { ...(await searchWithTinyFish(query, options)), provider };
 	if (provider === "tavily") return { ...(await searchWithTavily(query, options)), provider };
 	if (provider === "serpdive") return { ...(await searchWithSerpdive(query, options)), provider };
 	if (provider === "anysearch") return { ...(await searchWithAnySearch(query, options)), provider };
@@ -286,6 +288,7 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "openai") return isOpenAISearchAvailable(options.extensionContext);
 	if (provider === "brave") return isBraveAvailable();
 	if (provider === "parallel") return isParallelAvailable();
+	if (provider === "tinyfish") return isTinyFishAvailable();
 	if (provider === "tavily") return isTavilyAvailable();
 	if (provider === "serpdive") return isSerpdiveAvailable();
 	if (provider === "anysearch") return isAnySearchAvailable();
@@ -383,6 +386,16 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		}
 	}
 
+	if (isTinyFishAvailable()) {
+		try {
+			const result = await searchWithTinyFish(query, options);
+			return { ...result, provider: "tinyfish" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`TinyFish: ${errorMessage(err)}`);
+		}
+	}
+
 	if (isTavilyAvailable()) {
 		try {
 			const result = await searchWithTavily(query, options);
@@ -428,8 +441,8 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	throw new Error(
 		"No search provider available. Either:\n" +
 		"  1. Use /login to sign in with a Codex subscription for OpenAI web search\n" +
-		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tavilyApiKey, serpdiveApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
-		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, SERPDIVE_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
+		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tinyfishApiKey, tavilyApiKey, serpdiveApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
+		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TINYFISH_API_KEY, TAVILY_API_KEY, SERPDIVE_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
 		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
 		"  5. Sign into gemini.google.com in a supported Chromium-based browser\n" +
 		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch"

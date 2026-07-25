@@ -12,7 +12,7 @@ export interface CuratorServerOptions {
 	queries: string[];
 	sessionToken: string;
 	timeout: number;
-	availableProviders: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean };
+	availableProviders: { openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean };
 	defaultProvider: string;
 	searchProvider: string;
 	summaryModels: Array<{ value: string; label: string }>;
@@ -258,6 +258,7 @@ export function startCuratorServer(
 		if (provider === "openai") return availableProviders.openai;
 		if (provider === "brave") return availableProviders.brave;
 		if (provider === "parallel") return availableProviders.parallel;
+		if (provider === "tinyfish") return availableProviders.tinyfish;
 		if (provider === "tavily") return availableProviders.tavily;
 		if (provider === "serpdive") return availableProviders.serpdive;
 		if (provider === "searxng") return availableProviders.searxng;

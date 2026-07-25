@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added TinyFish as a first-class search and extraction provider with `tinyfishApiKey` / `TINYFISH_API_KEY` credentials, domain and recency filters, paginated result counts, batched inline content, ordered routing, curator selection, and a hosted `fetch_content` fallback before Parallel.
+
 ## [0.14.0] - 2026-07-25
 
 ### Added
