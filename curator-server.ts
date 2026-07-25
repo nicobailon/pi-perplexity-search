@@ -132,8 +132,12 @@ function normalizeSummaryMeta(value: unknown): SummaryMeta | null {
 	if (!value || typeof value !== "object") return null;
 	const meta = value as Record<string, unknown>;
 
-	const model = meta.model;
-	if (model !== null && typeof model !== "string") return null;
+	const model = meta.model === null
+		? null
+		: typeof meta.model === "string"
+			? meta.model
+			: undefined;
+	if (model === undefined) return null;
 
 	const durationMs = meta.durationMs;
 	if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0) return null;
@@ -144,16 +148,18 @@ function normalizeSummaryMeta(value: unknown): SummaryMeta | null {
 	const fallbackUsed = meta.fallbackUsed;
 	if (typeof fallbackUsed !== "boolean") return null;
 
-	const fallbackReason = meta.fallbackReason;
-	if (fallbackReason !== undefined && typeof fallbackReason !== "string") return null;
+	const fallbackReason = typeof meta.fallbackReason === "string" ? meta.fallbackReason : undefined;
+	if (meta.fallbackReason !== undefined && fallbackReason === undefined) return null;
 
-	const phase = meta.phase;
-	if (phase !== undefined && phase !== "summary-model" && phase !== "deterministic-fallback") return null;
+	const phase = meta.phase === "summary-model" || meta.phase === "deterministic-fallback"
+		? meta.phase
+		: undefined;
+	if (meta.phase !== undefined && phase === undefined) return null;
 	if (phase === "deterministic-fallback" && fallbackUsed !== true) return null;
 	if (phase === "summary-model" && fallbackUsed !== false) return null;
 
-	const edited = meta.edited;
-	if (edited !== undefined && typeof edited !== "boolean") return null;
+	const edited = typeof meta.edited === "boolean" ? meta.edited : undefined;
+	if (meta.edited !== undefined && edited === undefined) return null;
 
 	return {
 		model,
@@ -447,7 +453,7 @@ export function startCuratorServer(
 					allowEmpty: false,
 					maxExclusive: nextQueryIndex,
 				});
-				if (!parsed.ok) {
+				if ("error" in parsed) {
 					sendJson(res, 400, { ok: false, error: parsed.error });
 					return;
 				}
@@ -475,7 +481,7 @@ export function startCuratorServer(
 
 				try {
 					const result = await callbacks.onSummarize(parsed.indices, controller.signal, model, feedback);
-					if (requestId !== summarizeRequestSeq || state === "COMPLETED") {
+					if (requestId !== summarizeRequestSeq || completed) {
 						sendJson(res, 409, { ok: false, error: "Summarize request superseded" });
 						return;
 					}
@@ -532,7 +538,7 @@ export function startCuratorServer(
 					allowEmpty: true,
 					maxExclusive: nextQueryIndex,
 				});
-				if (!parsed.ok) {
+				if ("error" in parsed) {
 					sendJson(res, 400, { ok: false, error: parsed.error });
 					return;
 				}

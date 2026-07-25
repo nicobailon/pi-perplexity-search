@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-25
+
 ### Added
 - Added optional `fetchContent.domainPolicy` hostname allow/deny rules for `fetch_content`, checked before target requests and redirects while preserving SSRF protection and local-source behavior. Thanks Joseph Maliksi (@jmaliksi) for #79.
 - Added explicit-only AnySearch direct search provider with anonymous access, optional `anysearchApiKey` / `ANYSEARCH_API_KEY` credentials, strict response validation, and request-time credential sources. Thanks Robin (@choronz) for #130.

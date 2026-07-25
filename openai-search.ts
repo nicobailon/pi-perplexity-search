@@ -111,12 +111,11 @@ function extractAccountId(token: string): string | undefined {
 }
 
 async function resolvePiAuth(ctx: ExtensionContext): Promise<OpenAIAuth | undefined> {
-	const { getModel } = await import("@earendil-works/pi-ai/compat");
 	for (const candidate of AUTH_MODEL_CANDIDATES) {
 		for (const modelId of candidate.models) {
-			const model = getModel(candidate.provider, modelId);
-			if (!model) continue;
 			try {
+				const model = ctx.modelRegistry.find(candidate.provider, modelId);
+				if (!model) continue;
 				const resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 				if (resolved.ok && resolved.apiKey) {
 					return {

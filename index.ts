@@ -1,7 +1,7 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Box, Text, truncateToWidth, type KeyId } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { StringEnum, complete, type Model } from "@earendil-works/pi-ai/compat";
+import { StringEnum, complete, type Api, type ImageContent, type Model, type TextContent } from "@earendil-works/pi-ai/compat";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { clearCloneCache } from "./github-extract.ts";
@@ -52,8 +52,11 @@ import {
 	withClaimAssessment,
 	storeResearchArtifact,
 	getResearchArtifact,
+	type RecencyFilter,
 	type ResearchArtifact,
 } from "./source-check.ts";
+
+type ExtensionTheme = ExtensionContext["ui"]["theme"];
 
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
 
@@ -74,7 +77,7 @@ function isAbortError(err: unknown): boolean {
 /** Shared collapsed/expanded renderer for an error/cancel plan produced by
  * buildSearchErrorPlan(). Used by every tool renderResult's error branch so
  * Ctrl+O (app.tools.expand) reveals diagnostics instead of a dead-end single line. */
-function renderSearchErrorPlan(plan: SearchErrorPlan, expanded: boolean, theme: { fg: (key: string, s: string) => string; bg: (key: string, s: string) => string }) {
+function renderSearchErrorPlan(plan: SearchErrorPlan, expanded: boolean, theme: ExtensionTheme) {
 	if (expanded) {
 		return new Text(plan.expanded.map((l, i) => i === 0 ? theme.fg("error", l) : theme.fg("toolOutput", l)).join("\n"), 0, 0);
 	}
@@ -101,8 +104,8 @@ interface WebSearchConfig {
 	};
 	toolNames?: Partial<ToolNames>;
 	shortcuts?: {
-		curate?: string;
-		activity?: string;
+		curate?: KeyId;
+		activity?: KeyId;
 	};
 	ssrf?: {
 		/** CIDR ranges exempted from the SSRF guard (e.g. fake-IP proxy ranges). */
@@ -180,7 +183,7 @@ const DEFAULT_TOOL_NAMES: ToolNames = {
 	getSearchContent: "get_search_content",
 };
 const TOOL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
-const DEFAULT_SHORTCUTS = { curate: "ctrl+shift+s", activity: "ctrl+shift+w" };
+const DEFAULT_SHORTCUTS = { curate: "ctrl+shift+s", activity: "ctrl+shift+w" } satisfies Record<string, KeyId>;
 const DEFAULT_CURATOR_TIMEOUT_SECONDS = 20;
 const MAX_CURATOR_TIMEOUT_SECONDS = 600;
 
@@ -235,6 +238,12 @@ function resolveRequestedProvider(requested: unknown): SearchProvider {
 	if (normalizedRequested && normalizedRequested !== "auto") return normalizedRequested;
 	const config = loadConfig();
 	return normalizeProviderInput(config.searchProvider ?? config.provider) ?? "auto";
+}
+
+function normalizeRecencyFilter(value: unknown): RecencyFilter | undefined {
+	return value === "day" || value === "week" || value === "month" || value === "year"
+		? value
+		: undefined;
 }
 
 function normalizeCuratorTimeoutSeconds(value: unknown): number | undefined {
@@ -395,7 +404,7 @@ interface PendingCurate {
 	onUpdate: ((update: { content: Array<{ type: string; text: string }>; details?: Record<string, unknown> }) => void) | undefined;
 	signal: AbortSignal | undefined;
 	abortSearches: () => void;
-	finish: (value: unknown) => void;
+	finish: (value: AgentToolResult<Record<string, unknown>>) => void;
 	cancel: (reason?: "user" | "stale") => void;
 	browserPromise?: Promise<void>;
 	browserOpenError?: string;
@@ -630,7 +639,7 @@ function updateWidget(ctx: ExtensionContext): void {
 
 function formatEntryLine(
 	entry: ActivityEntry,
-	theme: { fg: (color: string, text: string) => string },
+	theme: ExtensionTheme,
 ): string {
 	const typeStr = entry.type === "api" ? "API" : "GET";
 	const target =
@@ -793,7 +802,7 @@ export default function (pi: ExtensionAPI) {
 			curatorUrl?: string;
 			browserOpenError?: string;
 		},
-	) {
+	): AgentToolResult<Record<string, unknown>> {
 		const message = `Search curation cancelled (${reason}).`;
 		const cancelledQueries = partial?.queries?.length
 			? partial.queries.map(q => ({
@@ -824,7 +833,7 @@ export default function (pi: ExtensionAPI) {
 	async function resolveFirstAvailableModel(
 		ctx: SummaryGenerationContext,
 		candidates: Array<{ provider: string; id: string }>,
-	): Promise<{ model: Model; apiKey: string; headers?: Record<string, string> }> {
+	): Promise<{ model: Model<Api>; apiKey: string; headers?: Record<string, string> }> {
 		const enabledModelPatterns = loadEnabledModelPatterns(ctx);
 		for (const { provider, id } of candidates) {
 			const model = ctx.modelRegistry.find(provider, id);
@@ -855,11 +864,7 @@ export default function (pi: ExtensionAPI) {
 		if (response.stopReason === "aborted") throw new Error("Aborted");
 		const contentParts = Array.isArray(response.content) ? response.content : [];
 		const text = contentParts
-			.map(p => {
-				if (!p || typeof p !== "object") return "";
-				const part = p as Record<string, unknown>;
-				return typeof part.text === "string" ? part.text : "";
-			})
+			.map(part => part.type === "text" ? part.text : "")
 			.join("")
 			.trim();
 		if (!text) throw new Error("Rewrite returned empty response");
@@ -979,7 +984,7 @@ export default function (pi: ExtensionAPI) {
 		};
 	}
 
-	function buildSearchReturn(opts: SearchReturnOptions) {
+	function buildSearchReturn(opts: SearchReturnOptions): AgentToolResult<Record<string, unknown>> {
 		const sc = opts.results.filter(r => !r.error).length;
 		const tr = opts.results.reduce((sum, r) => sum + r.results.length, 0);
 
@@ -1406,6 +1411,7 @@ export default function (pi: ExtensionAPI) {
 			const configWorkflow = loadConfigForExtensionInit().workflow;
 			const workflow = resolveWorkflow(params.workflow ?? configWorkflow, ctx?.hasUI !== false);
 			const shouldCurate = workflow === "summary-review";
+			const recencyFilter = normalizeRecencyFilter(params.recencyFilter);
 
 			if (queryList.length === 0) {
 				return {
@@ -1424,8 +1430,8 @@ export default function (pi: ExtensionAPI) {
 			if (shouldCurate) {
 				closeCurator(callId);
 
-				let resolvePromise: (value: unknown) => void = () => {};
-				const promise = new Promise<unknown>((resolve) => {
+				let resolvePromise: (value: AgentToolResult<Record<string, unknown>>) => void = () => {};
+				const promise = new Promise<AgentToolResult<Record<string, unknown>>>((resolve) => {
 					resolvePromise = resolve;
 				});
 				const includeContent = params.includeContent ?? false;
@@ -1440,7 +1446,7 @@ export default function (pi: ExtensionAPI) {
 				const requestedProvider = resolveRequestedProvider(params.provider);
 				const bootstrap = await loadCuratorBootstrap(requestedProvider, ctx, {
 					numResults: params.numResults,
-					recencyFilter: params.recencyFilter,
+					recencyFilter,
 				});
 				const availableProviders = bootstrap.availableProviders;
 				const defaultProvider = bootstrap.defaultProvider;
@@ -1465,7 +1471,7 @@ export default function (pi: ExtensionAPI) {
 					queryList,
 					includeContent,
 					numResults: params.numResults,
-					recencyFilter: params.recencyFilter,
+					recencyFilter,
 					domainFilter: params.domainFilter,
 					availableProviders,
 					defaultProvider,
@@ -1482,7 +1488,7 @@ export default function (pi: ExtensionAPI) {
 					cancel: () => {},
 				};
 
-				const finish = (value: unknown) => {
+				const finish = (value: AgentToolResult<Record<string, unknown>>) => {
 					if (cancelled) return;
 					cancelled = true;
 					pc.abortSearches();
@@ -1523,7 +1529,7 @@ export default function (pi: ExtensionAPI) {
 						const { answer, results, inlineContent, provider } = await search(queryList[qi], {
 							provider: requestedProvider,
 							numResults: params.numResults,
-							recencyFilter: params.recencyFilter,
+							recencyFilter,
 							domainFilter: params.domainFilter,
 							includeContent: params.includeContent,
 							signal: searchSignal,
@@ -1606,7 +1612,7 @@ export default function (pi: ExtensionAPI) {
 					const { answer, results, inlineContent, provider } = await search(query, {
 						provider: resolvedProvider,
 						numResults: params.numResults,
-						recencyFilter: params.recencyFilter,
+						recencyFilter,
 						domainFilter: params.domainFilter,
 						includeContent: params.includeContent,
 						signal,
@@ -1953,6 +1959,7 @@ export default function (pi: ExtensionAPI) {
 			const domainFilter = Array.isArray(params.domainFilter)
 				? params.domainFilter.filter((domain): domain is string => typeof domain === "string")
 				: undefined;
+			const recencyFilter = normalizeRecencyFilter(params.recencyFilter);
 			const resultsByUrl = new Map<string, SearchResult>();
 			const summaries: string[] = [];
 			const errors: Array<{ query: string; error: string }> = [];
@@ -1964,7 +1971,7 @@ export default function (pi: ExtensionAPI) {
 					const response = await search(query, {
 						provider: resolveRequestedProvider(params.provider),
 						numResults,
-						recencyFilter: params.recencyFilter,
+						recencyFilter,
 						domainFilter,
 						signal,
 						extensionContext: ctx,
@@ -2001,7 +2008,7 @@ export default function (pi: ExtensionAPI) {
 				summary: summaries.length > 0 ? summaries.join("\n\n") : undefined,
 				results,
 				fetched,
-				recency: params.recencyFilter,
+				recency: recencyFilter,
 				domainFilter,
 			}), [claim]);
 			if (errors.length > 0) artifact.errors = errors;
@@ -2047,7 +2054,7 @@ export default function (pi: ExtensionAPI) {
 			})),
 		}),
 
-		async execute(_toolCallId, params, signal, onUpdate) {
+		async execute(_toolCallId, params, signal, onUpdate): Promise<AgentToolResult<Record<string, unknown>>> {
 			const { urlList, options } = normalizeFetchContentParams(params);
 			if (urlList.length === 0) {
 				return {
@@ -2097,7 +2104,7 @@ export default function (pi: ExtensionAPI) {
 						`Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${MAX_INLINE_CONTENT} }) for the next slice.`;
 				}
 
-				const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [];
+				const content: Array<TextContent | ImageContent> = [];
 				if (result.frames?.length) {
 					for (const frame of result.frames) {
 						content.push({ type: "image", data: frame.data, mimeType: frame.mimeType });
@@ -2286,7 +2293,7 @@ export default function (pi: ExtensionAPI) {
 			limit: Type.Optional(Type.Number({ description: `Maximum characters to return for fetched URL content slices (default/max ${MAX_CONTENT_SLICE_LENGTH})` })),
 		}),
 
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params): Promise<AgentToolResult<Record<string, unknown>>> {
 			const data = getResult(params.responseId);
 			if (!data) {
 				return {
@@ -2545,7 +2552,7 @@ export default function (pi: ExtensionAPI) {
 			const curatorTimeoutSeconds = bootstrap.timeoutSeconds;
 			let currentProvider = initialProvider;
 			const rawSearchProvider = normalizeProviderInput(loadConfig().provider ?? "auto") ?? "auto";
-			let currentSearchProvider = rawSearchProvider === "auto" ? "auto" : initialProvider;
+			let currentSearchProvider: SearchProvider = rawSearchProvider === "auto" ? "auto" : initialProvider;
 			const summaryContext: SummaryGenerationContext = {
 				model: ctx.model,
 				modelRegistry: ctx.modelRegistry,

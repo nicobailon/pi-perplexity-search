@@ -681,6 +681,9 @@ async function extractViaHttp(
 			};
 		}
 
+		if (typeof article.content !== "string") {
+			throw new Error("Readability returned invalid article content");
+		}
 		const markdown = turndown.turndown(article.content);
 		activityMonitor.logComplete(activityId, response.status);
 

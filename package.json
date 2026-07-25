@@ -1,10 +1,12 @@
 {
   "name": "pi-web-access",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Web search, URL fetching, GitHub repo cloning, PDF extraction, YouTube video understanding, and local video analysis for Pi coding agent. Supports OpenAI, Brave, Parallel, Tavily, SERPdive, AnySearch, SearXNG, Firecrawl extraction, Exa, Perplexity, and Gemini.",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "typecheck": "tsc",
+    "audit:runtime": "npm audit --omit=dev --omit=peer"
   },
   "keywords": [
     "pi-package",
@@ -33,6 +35,10 @@
     "banner.png",
     "pi-web-fetch-demo.mp4"
   ],
+  "devDependencies": {
+    "@types/turndown": "^5.0.6",
+    "typescript": "^7.0.2"
+  },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.16.0",
