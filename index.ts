@@ -43,6 +43,7 @@ import { isOpenAISearchAvailable } from "./openai-search.ts";
 import { isParallelAvailable } from "./parallel.ts";
 import { isTavilyAvailable } from "./tavily.ts";
 import { isSearXNGAvailable } from "./searxng.ts";
+import { isFirecrawlAvailable } from "./firecrawl.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import {
@@ -117,6 +118,7 @@ interface ProviderAvailability {
 	perplexity: boolean;
 	exa: boolean;
 	gemini: boolean;
+	firecrawl: boolean;
 }
 
 type WebSearchWorkflow = "none" | "summary-review" | "auto-summary";
@@ -220,7 +222,7 @@ function normalizeProviderInput(value: unknown): SearchProvider | undefined {
 	if (value === undefined) return undefined;
 	if (typeof value !== "string") return "auto";
 	const normalized = value.trim().toLowerCase();
-	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini"];
+	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "firecrawl", "exa", "perplexity", "gemini"];
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
@@ -271,6 +273,7 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		perplexity: isPerplexityAvailable(),
 		exa: isExaAvailable(),
 		gemini: isGeminiApiAvailable() || !!geminiWebAvail,
+		firecrawl: isFirecrawlAvailable(),
 	};
 }
 
@@ -300,6 +303,7 @@ function firstAvailableProvider(available: ProviderAvailability, preferOpenAI: b
 	if (available.searxng) return "searxng";
 	if (preferOpenAI && available.openai) return "openai";
 	if (available.exa) return "exa";
+	if (available.firecrawl) return "firecrawl";
 	if (available.brave) return "brave";
 	if (available.parallel) return "parallel";
 	if (available.tavily) return "tavily";
@@ -321,6 +325,9 @@ function resolveProvider(
 	}
 	if (provider === "openai" && !available.openai) {
 		return firstAvailableProvider(available, false, "openai");
+	}
+	if (provider === "firecrawl" && !available.firecrawl) {
+		return firstAvailableProvider(available, preferOpenAI, "firecrawl");
 	}
 	if (provider === "brave" && !available.brave) {
 		return firstAvailableProvider(available, preferOpenAI, "brave");
@@ -1369,7 +1376,7 @@ export default function (pi: ExtensionAPI) {
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(
-				StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini"], { description: "Search provider; omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
+				StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "firecrawl", "exa", "perplexity", "gemini"], { description: "Search provider; omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
 			),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
@@ -1914,7 +1921,7 @@ export default function (pi: ExtensionAPI) {
 			fetchContent: Type.Optional(Type.Boolean({ description: "Fetch up to 5 result pages for exact passage extraction." })),
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
-			provider: Type.Optional(StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini"], { description: "Search provider." })),
+			provider: Type.Optional(StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "firecrawl", "exa", "perplexity", "gemini"], { description: "Search provider." })),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";

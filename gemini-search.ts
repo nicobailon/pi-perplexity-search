@@ -11,9 +11,10 @@ import { isOpenAISearchAvailable, searchWithOpenAI } from "./openai-search.ts";
 import { isParallelAvailable, searchWithParallel } from "./parallel.ts";
 import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
 import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
+import { isFirecrawlAvailable, searchWithFirecrawl } from "./firecrawl.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "searxng" | "perplexity" | "gemini" | "exa";
+export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "searxng" | "firecrawl" | "perplexity" | "gemini" | "exa";
 export type ResolvedSearchProvider = Exclude<SearchProvider, "auto">;
 
 export interface AttributedSearchResponse extends SearchResponse {
@@ -65,7 +66,7 @@ function normalizeSearchModel(value: unknown): string | undefined {
 
 function normalizeSearchProvider(value: unknown): SearchProvider {
 	const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "perplexity", "gemini", "exa"];
+	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "firecrawl", "perplexity", "gemini", "exa"];
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
@@ -135,6 +136,11 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	if (provider === "brave") {
 		const result = await searchWithBrave(query, options);
 		return { ...result, provider: "brave" };
+	}
+
+	if (provider === "firecrawl") {
+		const result = await searchWithFirecrawl(query, options);
+		return { ...result, provider: "firecrawl" };
 	}
 
 	if (provider === "parallel") {
@@ -218,6 +224,19 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		}
 	}
 
+	// Placed after Exa rather than up with SearXNG: SearXNG is a search engine,
+	// but a Firecrawl base URL is usually set for extraction, and its /search only
+	// answers when the deployment has its own search backend configured.
+	if (isFirecrawlAvailable()) {
+		try {
+			const result = await searchWithFirecrawl(query, options);
+			return { ...result, provider: "firecrawl" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`Firecrawl: ${errorMessage(err)}`);
+		}
+	}
+
 	if (isBraveAvailable()) {
 		try {
 			const result = await searchWithBrave(query, options);
@@ -273,8 +292,8 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	throw new Error(
 		"No search provider available. Either:\n" +
 		"  1. Use /login to sign in with a Codex subscription for OpenAI web search\n" +
-		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tavilyApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
-		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
+		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tavilyApiKey, searxngBaseUrl, firecrawlBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
+		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, SEARXNG_BASE_URL, FIRECRAWL_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
 		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
 		"  5. Sign into gemini.google.com in a supported Chromium-based browser"
 	);

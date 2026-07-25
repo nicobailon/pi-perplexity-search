@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added Firecrawl as an optional self-hosted provider for `web_search` and `fetch_content`, completing the Firecrawl half of #105. Search uses `/search`, extraction uses `/scrape`, both on the configured API version (`firecrawlApiVersion`, default `v2`; `v1` is accepted for older self-hosted images). Config via `firecrawlBaseUrl` / `FIRECRAWL_BASE_URL` with optional Bearer `firecrawlApiKey` / `FIRECRAWL_API_KEY`. Scrape targets stay behind the SSRF guard, and the instance's own base URL and redirects are guarded like SearXNG's, so a private instance needs its range in `ssrf.allowRanges`. Thanks to Avinash Kanaujiya (@avinashkanaujiya) for issue #105.
 - Added optional self-hosted SearXNG search with SSRF-guarded base URLs, local-first auto selection, result filters, and documented `ssrf.allowRanges` opt-ins. Thanks to Marcos A. Núñez (@marnunez) for PR #107 and Avinash Kanaujiya (@avinashkanaujiya) for issue #105.
 - Added opt-in configurable public tool names for environments where another extension or model reserves the defaults, while keeping `web_search`, `source_check`, `fetch_content`, and `get_search_content` unchanged by default. Thanks Kaiqiang (@youkq95) for reporting #138.
 - Added `SECURITY.md` guidance for private vulnerability reporting. Thanks Aurelio Ribeiro (@aurelio-ribeiro) for #128.

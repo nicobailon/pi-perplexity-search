@@ -10,6 +10,7 @@ import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, ex
 import { CredentialResolutionError } from "./credential-source.ts";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
+import { extractWithFirecrawl, isFirecrawlAvailable } from "./firecrawl.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { fetchRemoteUrl, loadSsrfConfig, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
 import { formatSeconds, getWebSearchConfigPath } from "./utils.ts";
@@ -441,6 +442,22 @@ export async function extractContent(
 	if (jinaResult) return jinaResult;
 	if (signal?.aborted) return abortedResult(url);
 
+	// Firecrawl extraction (self-hosted, Playwright-based, handles JS-rendered pages)
+	let firecrawlError: string | null = null;
+	try {
+		if (isFirecrawlAvailable()) {
+			const fcResult = await extractWithFirecrawl(url, signal, {
+				...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+				...(options?.lookup ? { lookup: options.lookup } : {}),
+			});
+			if (fcResult) return fcResult;
+		}
+	} catch (err) {
+		if (isAbortError(err)) return abortedResult(url);
+		firecrawlError = errorMessage(err);
+		if (isConfigParseError(err)) return { ...httpResult, error: firecrawlError };
+	}
+
 	let parallelError: string | null = null;
 	try {
 		if (isParallelAvailable()) {
@@ -472,9 +489,11 @@ export async function extractContent(
 
 	const guidance = [
 		httpResult.error,
+		...(firecrawlError ? [`Firecrawl fallback failed: ${firecrawlError}`] : []),
 		...(parallelError ? [`Parallel fallback failed: ${parallelError}`] : []),
 		"",
 		"Fallback options:",
+		`  \u2022 Set firecrawlBaseUrl in ${WEB_SEARCH_CONFIG_PATH} to a self-hosted Firecrawl instance`,
 		`  \u2022 Set PARALLEL_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
 		`  \u2022 Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
 		"  \u2022 Sign into gemini.google.com in Chrome",
