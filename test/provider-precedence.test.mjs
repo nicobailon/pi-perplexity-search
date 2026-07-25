@@ -119,6 +119,42 @@ test("malformed config root fails with an explicit object-shape error", async ()
 	assert.match(child.stderr, /Invalid config in .*web-search\.json: expected a JSON object/);
 });
 
+test("non-curated search stops after caller cancellation", async () => {
+	const agentDir = await createConfig(null);
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			let calls = 0;
+			globalThis.fetch = async () => {
+				calls += 1;
+				throw new DOMException("The operation was aborted", "AbortError");
+			};
+			const tools = [];
+			const pi = {
+				registerTool(tool) { tools.push(tool); },
+				registerShortcut() {}, registerCommand() {}, on() {}, appendEntry() {}, sendMessage() {},
+			};
+			const extension = (await import(${JSON.stringify(indexUrl)})).default;
+			extension(pi);
+			const tool = tools.find((candidate) => candidate.name === "web_search");
+			const controller = new AbortController();
+			controller.abort();
+			let error = "";
+			try {
+				await tool.execute("cancel-test", { queries: ["first", "second"], provider: "anysearch", workflow: "none" }, controller.signal);
+			} catch (err) {
+				error = String(err);
+			}
+			console.log(JSON.stringify({ calls, error }));
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+	});
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.calls, 1);
+	assert.match(output.error, /abort/i);
+});
+
 test("curated and non-curated branches both resolve the requested provider", async () => {
 	const { readFile } = await import("node:fs/promises");
 	const source = await readFile(new URL("../index.ts", import.meta.url), "utf8");

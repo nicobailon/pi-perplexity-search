@@ -353,7 +353,7 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		}
 	}
 
-	if (provider !== "exa" && isExaAvailable()) {
+	if (isExaAvailable()) {
 		try {
 			const result = await searchWithExa(query, options);
 			if (result) return { ...result, provider: "exa" };

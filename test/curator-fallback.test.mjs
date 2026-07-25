@@ -14,6 +14,12 @@ test("web_search curator auto-open failures keep the curator alive with a manual
 	assert.doesNotMatch(indexSrc, /Failed to open curator UI: \$\{message\}`\);\n\t\t\tif \(pendingCurates\.get\(callId\) === pc \|\| \(handle && activeCurators\.get\(callId\) === handle\)\) \{\n\t\t\t\tcloseCurator\(callId\);/);
 });
 
+test("curator add-search receives the active extension context", () => {
+	assert.match(indexSrc, /openCuratorBrowser\(callId: string, pc: PendingCurate, ctx: ExtensionContext,/);
+	assert.match(indexSrc, /openCuratorBrowser\(callId, pc, ctx, false\)/);
+	assert.match(indexSrc, /extensionContext: ctx,/);
+});
+
 test("curator fallback helper is visible to the browser-open catch block", () => {
 	const functionIndex = indexSrc.indexOf("async function openCuratorBrowser");
 	const declarationIndex = indexSrc.indexOf("const sendCuratorFallbackUpdate", functionIndex);

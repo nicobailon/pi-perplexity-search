@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 - Removed the bundled `librarian` skill from this package instead of keeping a second research workflow coupled to GitHub clone internals. Thanks mcwalrus (@mcwalrus) for #136 and gravewhisper (@gravewhisper) for #23.
 
 ### Fixed
+- Prevented opt-in Gemini Web browser cookies from crossing origins on redirects, disabled automatic redirects for cookie-bearing generation and upload requests, and restored local file reads for Gemini Web uploads.
+- Preserved caller cancellation in non-curated multi-query searches instead of continuing with later queries, and passed the active extension context into curator-added searches.
+- Hardened new provider result boundaries and removed a dead auto-routing condition without changing provider behavior.
 - Hardened unreleased config/result boundaries by rejecting malformed config roots, reporting malformed SSRF JSON, normalizing invalid Perplexity result counts, and rejecting contradictory curator summary metadata.
 - Reworked opt-in Gemini Web browser-cookie extraction to scan non-default Chromium profiles, preflight required cookie names before Keychain/secret-tool access, and cache encryption passwords only in-process. Thanks Kevin Truong (@kevinQTruong) for the originating PR #14, Jessica Black (@jssblck) for reporting #9, János Veres (@jveres) for reporting #2, and RimuruW (@RimuruW) for reporting #15.
 - Added read-only `sqlite3` CLI and Python stdlib fallbacks when `node:sqlite` is unavailable, with sanitized actionable diagnostics instead of silently reporting Gemini Web as unavailable.

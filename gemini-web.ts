@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { getLastGoogleCookieDiagnostic, type CookieMap, getGoogleCookies } from "./chrome-cookies.ts";
 import { getChromeProfileFromConfig, isBrowserCookieAccessAllowed, normalizeChromeProfile } from "./gemini-web-config.ts";
@@ -133,6 +134,7 @@ async function runGeminiWebOnce(
 
 	const res = await fetch(GEMINI_STREAM_GENERATE_URL, {
 		method: "POST",
+		redirect: "error",
 		headers: {
 			"content-type": "application/x-www-form-urlencoded;charset=utf-8",
 			host: "gemini.google.com",
@@ -191,6 +193,7 @@ async function fetchWithCookieRedirects(
 	signal: AbortSignal,
 ): Promise<string> {
 	let current = url;
+	const allowedOrigin = new URL(url).origin;
 	for (let i = 0; i <= maxRedirects; i++) {
 		const res = await fetch(current, {
 			headers: { "user-agent": USER_AGENT, cookie: cookieHeader },
@@ -200,7 +203,11 @@ async function fetchWithCookieRedirects(
 		if (res.status >= 300 && res.status < 400) {
 			const location = res.headers.get("location");
 			if (location) {
-				current = new URL(location, current).toString();
+				const next = new URL(location, current);
+				if (next.origin !== allowedOrigin) {
+					throw new Error(`Refusing to send Google cookies across origins: ${allowedOrigin} -> ${next.origin}`);
+				}
+				current = next.toString();
 				continue;
 			}
 		}
@@ -300,6 +307,7 @@ async function uploadFile(
 
 	const res = await fetch(GEMINI_UPLOAD_URL, {
 		method: "POST",
+		redirect: "error",
 		headers: {
 			"content-type": `multipart/form-data; boundary=${boundary}`,
 			"push-id": GEMINI_UPLOAD_PUSH_ID,

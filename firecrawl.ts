@@ -265,13 +265,15 @@ export async function extractWithFirecrawl(
 	if (!data || typeof data !== "object" || Array.isArray(data)) {
 		throw new Error("Firecrawl scrape returned an unexpected data shape");
 	}
-	const content = typeof (data as FirecrawlScrapeData).markdown === "string"
-		? (data as FirecrawlScrapeData).markdown.trim()
-		: null;
-	if (content === null) throw new Error("Firecrawl scrape returned markdown in an unexpected shape");
+	const scrape = data as FirecrawlScrapeData;
+	if (typeof scrape.markdown !== "string") {
+		throw new Error("Firecrawl scrape returned markdown in an unexpected shape");
+	}
+	const content = scrape.markdown.trim();
 	if (!content) return null;
-	const title = typeof (data as FirecrawlScrapeData).metadata?.title === "string" && (data as FirecrawlScrapeData).metadata.title.trim()
-		? (data as FirecrawlScrapeData).metadata.title.trim()
-		: typeof (data as FirecrawlScrapeData).title === "string" ? (data as FirecrawlScrapeData).title.trim() : "";
+	const metadataTitle = scrape.metadata?.title;
+	const title = typeof metadataTitle === "string" && metadataTitle.trim()
+		? metadataTitle.trim()
+		: typeof scrape.title === "string" ? scrape.title.trim() : "";
 	return { url, title, content, error: null };
 }

@@ -118,8 +118,10 @@ export async function getGoogleCookies(
 				if (metaVersion.failure) sawBackendFailure = metaVersion.failure;
 				if (metaVersion.value === null) continue;
 				const rowsResult = await queryCookieRows(tempDb, hosts, ALL_COOKIE_NAMES);
-				if (rowsResult.failure) sawBackendFailure = rowsResult.failure;
-				if (!rowsResult.rows) continue;
+				if (rowsResult.status === "failure") {
+					sawBackendFailure = rowsResult.failure;
+					continue;
+				}
 
 				const cookies: CookieMap = {};
 				for (const row of rowsResult.rows) {
@@ -307,8 +309,8 @@ async function importSqlite(): Promise<typeof import("node:sqlite") | null> {
 }
 
 type QueryResult =
-	| { rows: SqliteRow[] }
-	| { rows: null; failure: SqliteFailure };
+	| { status: "success"; rows: SqliteRow[] }
+	| { status: "failure"; failure: SqliteFailure };
 
 async function runSqliteQuery(dbPath: string, sql: string): Promise<QueryResult> {
 	const sqlite = await importSqlite();
@@ -317,7 +319,7 @@ async function runSqliteQuery(dbPath: string, sql: string): Promise<QueryResult>
 		try {
 			const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
 			try {
-				return { rows: db.prepare(sql).all() as SqliteRow[] };
+				return { status: "success", rows: db.prepare(sql).all() as SqliteRow[] };
 			} finally {
 				db.close();
 			}
@@ -327,23 +329,23 @@ async function runSqliteQuery(dbPath: string, sql: string): Promise<QueryResult>
 	}
 
 	const cli = await runSqliteCli(dbPath, sql);
-	if (cli.rows) return cli;
+	if (cli.status === "success") return cli;
 	if (cli.failure === "query") queryFailed = true;
 	const python = await runPythonSqlite(dbPath, sql);
-	if (python.rows) return python;
+	if (python.status === "success") return python;
 	if (python.failure === "query") queryFailed = true;
-	return { rows: null, failure: queryFailed ? "query" : "unavailable" };
+	return { status: "failure", failure: queryFailed ? "query" : "unavailable" };
 }
 
 function runSqliteCli(dbPath: string, sql: string): Promise<QueryResult> {
 	return new Promise((resolve) => {
 		execFile("sqlite3", ["-readonly", "-json", dbPath, sql], { timeout: 5000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
-			if (err) { resolve({ rows: null, failure: err.code === "ENOENT" ? "unavailable" : "query" }); return; }
+			if (err) { resolve({ status: "failure", failure: err.code === "ENOENT" ? "unavailable" : "query" }); return; }
 			try {
 				const parsed = JSON.parse(stdout || "[]");
-				resolve(Array.isArray(parsed) ? { rows: parsed as SqliteRow[] } : { rows: null, failure: "query" });
+				resolve(Array.isArray(parsed) ? { status: "success", rows: parsed as SqliteRow[] } : { status: "failure", failure: "query" });
 			} catch {
-				resolve({ rows: null, failure: "query" });
+				resolve({ status: "failure", failure: "query" });
 			}
 		});
 	});
@@ -353,12 +355,12 @@ function runPythonSqlite(dbPath: string, sql: string): Promise<QueryResult> {
 	const script = "import json,sqlite3,sys\ntry:\n c=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True)\n c.row_factory=sqlite3.Row\n print(json.dumps([dict(r) for r in c.execute(sys.argv[2]).fetchall()]))\nexcept Exception:\n sys.exit(1)";
 	return new Promise((resolve) => {
 		execFile("python3", ["-c", script, dbPath, sql], { timeout: 5000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
-			if (err) { resolve({ rows: null, failure: err.code === "ENOENT" ? "unavailable" : "query" }); return; }
+			if (err) { resolve({ status: "failure", failure: err.code === "ENOENT" ? "unavailable" : "query" }); return; }
 			try {
 				const parsed = JSON.parse(stdout || "[]");
-				resolve(Array.isArray(parsed) ? { rows: parsed as SqliteRow[] } : { rows: null, failure: "query" });
+				resolve(Array.isArray(parsed) ? { status: "success", rows: parsed as SqliteRow[] } : { status: "failure", failure: "query" });
 			} catch {
-				resolve({ rows: null, failure: "query" });
+				resolve({ status: "failure", failure: "query" });
 			}
 		});
 	});
@@ -366,7 +368,7 @@ function runPythonSqlite(dbPath: string, sql: string): Promise<QueryResult> {
 
 async function readMetaVersion(dbPath: string): Promise<{ value: number | null; failure?: SqliteFailure }> {
 	const result = await runSqliteQuery(dbPath, "SELECT value FROM meta WHERE key = 'version'");
-	if (!result.rows) {
+	if (result.status === "failure") {
 		return result.failure === "unavailable"
 			? { value: null, failure: result.failure }
 			: { value: 0 };
@@ -379,7 +381,7 @@ async function readMetaVersion(dbPath: string): Promise<{ value: number | null; 
 
 async function hasCookieNames(dbPath: string, hosts: string[], names: string[]): Promise<{ present: boolean; failure?: SqliteFailure }> {
 	const result = await runSqliteQuery(dbPath, `SELECT DISTINCT name FROM cookies WHERE ${buildCookieWhere(hosts, names)}`);
-	if (!result.rows) return { present: false, failure: result.failure };
+	if (result.status === "failure") return { present: false, failure: result.failure };
 	const present = new Set(result.rows.map((row) => typeof row.name === "string" ? row.name : ""));
 	return { present: names.every((name) => present.has(name)) };
 }

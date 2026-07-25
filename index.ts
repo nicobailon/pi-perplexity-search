@@ -1095,7 +1095,7 @@ export default function (pi: ExtensionAPI) {
 		return { results, urls };
 	}
 
-	async function openCuratorBrowser(callId: string, pc: PendingCurate, searchesComplete = true): Promise<void> {
+	async function openCuratorBrowser(callId: string, pc: PendingCurate, ctx: ExtensionContext, searchesComplete = true): Promise<void> {
 		if (pendingCurates.get(callId) !== pc) return;
 		let handle: CuratorServerHandle | null = null;
 		const sendCuratorFallbackUpdate = (message: string) => {
@@ -1334,7 +1334,7 @@ export default function (pi: ExtensionAPI) {
 			const [callId, pc] = entries[entries.length - 1];
 
 			if (pc.phase === "searching") {
-				pc.browserPromise = openCuratorBrowser(callId, pc, false);
+				pc.browserPromise = openCuratorBrowser(callId, pc, ctx, false);
 				ctx.ui.notify("Opening curator — remaining searches will stream in", "info");
 				return;
 			}
@@ -1510,7 +1510,7 @@ export default function (pi: ExtensionAPI) {
 				const onAbort = () => closeCurator(callId);
 				pendingCurates.set(callId, pc);
 				signal?.addEventListener("abort", onAbort, { once: true });
-				pc.browserPromise = openCuratorBrowser(callId, pc, false);
+				pc.browserPromise = openCuratorBrowser(callId, pc, ctx, false);
 
 				for (let qi = 0; qi < queryList.length; qi++) {
 					if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
@@ -1621,6 +1621,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					if (inlineContent) allInlineContent.push(...inlineContent);
 				} catch (err) {
+					if (signal?.aborted || isAbortError(err)) throw err;
 					const message = err instanceof Error ? err.message : String(err);
 					const requestedProvider = typeof resolvedProvider === "string" && resolvedProvider !== "auto"
 						? resolvedProvider

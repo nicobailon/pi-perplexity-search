@@ -99,18 +99,13 @@ function parseResponse(value: unknown): AnySearchResponse {
 			throw invalidResponse(`expected data.results[${index}] object`);
 		}
 		const result = value as Record<string, unknown>;
-		for (const field of ["title", "url", "snippet", "content"] as const) {
-			if (typeof result[field] !== "string") {
-				throw invalidResponse(`expected data.results[${index}].${field} string`);
-			}
-		}
-		if (!result.url) throw invalidResponse(`expected data.results[${index}].url to be non-empty`);
-		results.push({
-			title: result.title,
-			url: result.url,
-			snippet: result.snippet,
-			content: result.content,
-		});
+		const { title, url, snippet, content } = result;
+		if (typeof title !== "string") throw invalidResponse(`expected data.results[${index}].title string`);
+		if (typeof url !== "string") throw invalidResponse(`expected data.results[${index}].url string`);
+		if (typeof snippet !== "string") throw invalidResponse(`expected data.results[${index}].snippet string`);
+		if (typeof content !== "string") throw invalidResponse(`expected data.results[${index}].content string`);
+		if (!url) throw invalidResponse(`expected data.results[${index}].url to be non-empty`);
+		results.push({ title, url, snippet, content });
 	}
 
 	return { code: 0, data: { results, metadata: data.metadata as Record<string, unknown> } };
