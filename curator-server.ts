@@ -19,15 +19,24 @@ export interface CuratorServerOptions {
 	defaultSummaryModel: string | null;
 }
 
+export interface CuratorSearchEntry {
+	answer: string;
+	results: Array<{ title: string; url: string; domain: string; snippet?: string }>;
+	provider: string;
+	error?: string;
+}
+
+export interface IndexedCuratorSearchEntry extends CuratorSearchEntry {
+	queryIndex: number;
+	query: string;
+}
+
 export interface CuratorServerCallbacks {
 	onSubmit: (payload: { selectedQueryIndices: number[]; summary?: string; summaryMeta?: SummaryMeta; rawResults?: boolean }) => void;
 	onCancel: (reason: "user" | "timeout" | "stale") => void;
 	onProviderChange: (provider: string) => void;
-	onAddSearch: (query: string, queryIndex: number, provider?: string) => Promise<{
-		answer: string;
-		results: Array<{ title: string; url: string; domain: string }>;
-		provider: string;
-	}>;
+	onAddSearch: (query: string, provider?: string) => Promise<CuratorSearchEntry[]>;
+	onAddSearchResults: (entries: IndexedCuratorSearchEntry[]) => void;
 	onSummarize: (
 		selectedQueryIndices: number[],
 		signal: AbortSignal,
@@ -41,8 +50,8 @@ export interface CuratorServerHandle {
 	server: http.Server;
 	url: string;
 	close: () => void;
-	pushResult: (queryIndex: number, data: { answer: string; results: Array<{ title: string; url: string; domain: string }>; provider: string }) => void;
-	pushError: (queryIndex: number, error: string, provider?: string) => void;
+	pushResult: (queryIndex: number, data: CuratorSearchEntry & { query?: string; slotIndex?: number }) => void;
+	pushError: (queryIndex: number, error: string, provider?: string, meta?: { query?: string; slotIndex?: number }) => void;
 	searchesDone: () => void;
 	/** Reports browser connection state so a cancelled search can surface WHY it
 	 * went stale (e.g. the browser never connected). */
@@ -420,24 +429,30 @@ export function startCuratorServer(
 					}
 				}
 				const qi = nextQueryIndex++;
+				const trimmedQuery = query.trim();
 				touchHeartbeat();
 				try {
-					const result = await callbacks.onAddSearch(query.trim(), qi, provider);
-					sendJson(res, 200, {
-						ok: true,
-						queryIndex: qi,
-						answer: result.answer,
-						results: result.results,
-						provider: result.provider,
-					});
+					const results = await callbacks.onAddSearch(trimmedQuery, provider);
+					if (results.length === 0) throw new Error("Search returned no provider results");
+					const entries = results.map((result, index): IndexedCuratorSearchEntry => ({
+						...result,
+						queryIndex: index === 0 ? qi : nextQueryIndex++,
+						query: trimmedQuery,
+					}));
+					callbacks.onAddSearchResults(entries);
+					sendJson(res, 200, { ok: true, ...entries[0], entries });
 				} catch (err) {
 					const message = err instanceof Error ? err.message : "Search failed";
-					sendJson(res, 200, {
-						ok: true,
+					const entry: IndexedCuratorSearchEntry = {
 						queryIndex: qi,
+						query: trimmedQuery,
+						answer: "",
+						results: [],
 						error: message,
-						...(typeof provider === "string" && provider.length > 0 ? { provider } : {}),
-					});
+						provider: typeof provider === "string" && provider.length > 0 ? provider : defaultProvider,
+					};
+					callbacks.onAddSearchResults([entry]);
+					sendJson(res, 200, { ok: true, ...entry, entries: [entry] });
 				}
 				return;
 			}
@@ -657,11 +672,13 @@ export function startCuratorServer(
 				},
 				pushResult: (queryIndex, data) => {
 					if (completed) return;
-					sendSSE("result", { queryIndex, query: queries[queryIndex] ?? "", ...data });
+					nextQueryIndex = Math.max(nextQueryIndex, queryIndex + 1);
+					sendSSE("result", { queryIndex, query: data.query ?? queries[queryIndex] ?? "", ...data });
 				},
-				pushError: (queryIndex, error, provider) => {
+				pushError: (queryIndex, error, provider, meta) => {
 					if (completed) return;
-					sendSSE("search-error", { queryIndex, query: queries[queryIndex] ?? "", error, provider });
+					nextQueryIndex = Math.max(nextQueryIndex, queryIndex + 1);
+					sendSSE("search-error", { queryIndex, query: meta?.query ?? queries[queryIndex] ?? "", error, provider, slotIndex: meta?.slotIndex });
 				},
 				searchesDone: () => {
 					if (completed) return;

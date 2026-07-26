@@ -5,7 +5,7 @@ import { StringEnum, complete, type Api, type ImageContent, type Model, type Tex
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { clearCloneCache } from "./github-extract.ts";
-import { getConfiguredSearchRouting, search, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
+import { getConfiguredSearchRouting, search, type AttributedSearchResponse, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
 import type { SearchResult } from "./perplexity.ts";
 import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath } from "./utils.ts";
 import {
@@ -20,7 +20,7 @@ import {
 	type StoredSearchData,
 } from "./storage.ts";
 import { activityMonitor, type ActivityEntry } from "./activity.ts";
-import { startCuratorServer, type CuratorServerHandle } from "./curator-server.ts";
+import { startCuratorServer, type CuratorSearchEntry, type CuratorServerHandle, type IndexedCuratorSearchEntry } from "./curator-server.ts";
 import {
 	buildDeterministicSummary,
 	generateSummaryDraft,
@@ -405,6 +405,7 @@ interface PendingCurate {
 	workflow: CuratorWorkflow;
 	summaryContext: SummaryGenerationContext;
 	searchResults: Map<number, QueryResultData>;
+	resultSlots: Map<number, number>;
 	allInlineContent: ExtractedContent[];
 	queryList: string[];
 	includeContent: boolean;
@@ -624,6 +625,40 @@ function openInGlimpse(
 function extractDomain(url: string): string {
 	try { return new URL(url).hostname; }
 	catch { return url; }
+}
+
+function toCuratorSearchEntries(response: AttributedSearchResponse): CuratorSearchEntry[] {
+	const providerResponses = response.provider === "all" && response.providerResponses?.length
+		? response.providerResponses
+		: [response];
+	const entries: CuratorSearchEntry[] = providerResponses.map(result => ({
+		answer: result.answer,
+		results: result.results.map(source => ({ ...source, domain: extractDomain(source.url) })),
+		provider: result.provider,
+	}));
+	for (const failure of response.providerErrors ?? []) {
+		entries.push({
+			answer: "",
+			results: [],
+			provider: failure.provider,
+			error: failure.error,
+		});
+	}
+	return entries;
+}
+
+function indexedCuratorEntryToQueryResult(entry: IndexedCuratorSearchEntry): QueryResultData {
+	return {
+		query: entry.query,
+		answer: entry.answer,
+		results: entry.results.map(source => ({
+			title: source.title,
+			url: source.url,
+			snippet: source.snippet ?? "",
+		})),
+		error: entry.error ?? null,
+		provider: entry.provider,
+	};
 }
 
 function updateWidget(ctx: ExtensionContext): void {
@@ -1246,36 +1281,29 @@ export default function (pi: ExtensionAPI) {
 							console.error(`Failed to persist default provider: ${message}`);
 						}
 					},
-					async onAddSearch(query, queryIndex, provider) {
+					async onAddSearch(query, provider) {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						const normalizedProvider = normalizeProviderInput(provider);
 						const requestedProvider = !normalizedProvider || normalizedProvider === "auto"
 							? pc.searchProvider
 							: normalizedProvider;
-						try {
-							const { answer, results, inlineContent, provider: actualProvider } = await search(query, {
-								provider: requestedProvider,
-								numResults: pc.numResults,
-								recencyFilter: pc.recencyFilter,
-								domainFilter: pc.domainFilter,
-								includeContent: pc.includeContent,
-								signal: addSearchSignal,
-								extensionContext: ctx,
-							});
-							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-							pc.searchResults.set(queryIndex, { query, answer, results, error: null, provider: actualProvider });
-							if (inlineContent) pc.allInlineContent.push(...inlineContent);
-							return {
-								answer,
-								results: results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
-								provider: actualProvider,
-							};
-						} catch (err) {
-							const message = err instanceof Error ? err.message : String(err);
-							if (pendingCurates.get(callId) === pc) {
-								pc.searchResults.set(queryIndex, { query, answer: "", results: [], error: message, provider: requestedProvider });
-							}
-							throw err;
+						const response = await search(query, {
+							provider: requestedProvider,
+							numResults: pc.numResults,
+							recencyFilter: pc.recencyFilter,
+							domainFilter: pc.domainFilter,
+							includeContent: pc.includeContent,
+							signal: addSearchSignal,
+							extensionContext: ctx,
+						});
+						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
+						if (response.inlineContent) pc.allInlineContent.push(...response.inlineContent);
+						return toCuratorSearchEntries(response);
+					},
+					onAddSearchResults(entries) {
+						if (pendingCurates.get(callId) !== pc) return;
+						for (const entry of entries) {
+							pc.searchResults.set(entry.queryIndex, indexedCuratorEntryToQueryResult(entry));
 						}
 					},
 					async onRewriteQuery(query, rewriteSignal) {
@@ -1294,13 +1322,16 @@ export default function (pi: ExtensionAPI) {
 			pc.curatorUrl = handle.url;
 
 			for (const [qi, data] of pc.searchResults) {
+				const slotIndex = pc.resultSlots.get(qi);
 				if (data.error) {
-					handle.pushError(qi, data.error, data.provider);
+					handle.pushError(qi, data.error, data.provider, { query: data.query, slotIndex });
 				} else {
 					handle.pushResult(qi, {
 						answer: data.answer,
-						results: data.results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
+						results: data.results.map(r => ({ ...r, domain: extractDomain(r.url) })),
 						provider: data.provider || pc.defaultProvider,
+						query: data.query,
+						slotIndex,
 					});
 				}
 			}
@@ -1453,7 +1484,9 @@ export default function (pi: ExtensionAPI) {
 				});
 				const includeContent = params.includeContent ?? false;
 				const searchResults = new Map<number, QueryResultData>();
+				const resultSlots = new Map<number, number>();
 				const allInlineContent: ExtractedContent[] = [];
+				let nextResultIndex = queryList.length;
 				const searchAbort = new AbortController();
 				const searchSignal = signal
 					? AbortSignal.any([signal, searchAbort.signal])
@@ -1484,6 +1517,7 @@ export default function (pi: ExtensionAPI) {
 					workflow: curatorWorkflow,
 					summaryContext,
 					searchResults,
+					resultSlots,
 					allInlineContent,
 					queryList,
 					includeContent,
@@ -1543,7 +1577,7 @@ export default function (pi: ExtensionAPI) {
 					});
 					const requestedProvider = pc.searchProvider;
 					try {
-						const { answer, results, inlineContent, provider } = await search(queryList[qi], {
+						const response = await search(queryList[qi], {
 							provider: requestedProvider,
 							numResults: params.numResults,
 							recencyFilter,
@@ -1553,23 +1587,35 @@ export default function (pi: ExtensionAPI) {
 							extensionContext: ctx,
 						});
 						if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
-						searchResults.set(qi, { query: queryList[qi], answer, results, error: null, provider });
-						if (inlineContent) allInlineContent.push(...inlineContent);
+						if (response.inlineContent) allInlineContent.push(...response.inlineContent);
+						const entries = toCuratorSearchEntries(response);
 						const curator = activeCurators.get(callId);
-						if (curator) {
-							curator.pushResult(qi, {
-								answer,
-								results: results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
-								provider,
-							});
+						for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+							const entry = entries[entryIndex];
+							const resultIndex = entryIndex === 0 ? qi : nextResultIndex++;
+							const indexedEntry: IndexedCuratorSearchEntry = {
+								...entry,
+								queryIndex: resultIndex,
+								query: queryList[qi],
+							};
+							searchResults.set(resultIndex, indexedCuratorEntryToQueryResult(indexedEntry));
+							resultSlots.set(resultIndex, qi);
+							if (curator) {
+								if (entry.error) {
+									curator.pushError(resultIndex, entry.error, entry.provider, { query: queryList[qi], slotIndex: qi });
+								} else {
+									curator.pushResult(resultIndex, { ...entry, query: queryList[qi], slotIndex: qi });
+								}
+							}
 						}
 					} catch (err) {
 						if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
 						const message = err instanceof Error ? err.message : String(err);
 						searchResults.set(qi, { query: queryList[qi], answer: "", results: [], error: message, provider: requestedProvider });
+						resultSlots.set(qi, qi);
 						const curator = activeCurators.get(callId);
 						if (curator) {
-							curator.pushError(qi, message, requestedProvider);
+							curator.pushError(qi, message, requestedProvider, { query: queryList[qi], slotIndex: qi });
 						}
 					}
 				}
@@ -2679,7 +2725,7 @@ export default function (pi: ExtensionAPI) {
 								console.error(`Failed to persist default provider: ${message}`);
 							}
 						},
-						async onAddSearch(query, queryIndex, provider) {
+						async onAddSearch(query, provider) {
 							if (commandHandle && !isCommandActive()) {
 								throw new Error("Curator session is no longer active.");
 							}
@@ -2687,27 +2733,20 @@ export default function (pi: ExtensionAPI) {
 							const requestedProvider = !normalizedProvider || normalizedProvider === "auto"
 								? currentSearchProvider
 								: normalizedProvider;
-							try {
-								const { answer, results, provider: actualProvider } = await search(query, {
-									provider: requestedProvider,
-									signal: searchAbort.signal,
-									extensionContext: ctx,
-								});
-								if (commandHandle && !isCommandActive()) {
-									throw new Error("Curator session is no longer active.");
-								}
-								collected.set(queryIndex, { query, answer, results, error: null, provider: actualProvider });
-								return {
-									answer,
-									results: results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
-									provider: actualProvider,
-								};
-							} catch (err) {
-								const message = err instanceof Error ? err.message : String(err);
-								if (!commandHandle || isCommandActive()) {
-									collected.set(queryIndex, { query, answer: "", results: [], error: message, provider: requestedProvider });
-								}
-								throw err;
+							const response = await search(query, {
+								provider: requestedProvider,
+								signal: searchAbort.signal,
+								extensionContext: ctx,
+							});
+							if (commandHandle && !isCommandActive()) {
+								throw new Error("Curator session is no longer active.");
+							}
+							return toCuratorSearchEntries(response);
+						},
+						onAddSearchResults(entries) {
+							if (commandHandle && !isCommandActive()) return;
+							for (const entry of entries) {
+								collected.set(entry.queryIndex, indexedCuratorEntryToQueryResult(entry));
 							}
 						},
 						async onRewriteQuery(query, rewriteSignal) {
@@ -2757,26 +2796,37 @@ export default function (pi: ExtensionAPI) {
 
 				if (queries.length > 0) {
 					(async () => {
+						let nextResultIndex = queries.length;
 						for (let qi = 0; qi < queries.length; qi++) {
 							if (aborted || !isCommandActive()) break;
 							const requestedProvider = currentSearchProvider;
 							try {
-								const { answer, results, provider } = await search(queries[qi], {
+								const response = await search(queries[qi], {
 									provider: requestedProvider,
 									signal: searchAbort.signal,
 									extensionContext: ctx,
 								});
 								if (aborted || !isCommandActive()) break;
-								handle.pushResult(qi, {
-									answer,
-									results: results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
-									provider,
-								});
-								collected.set(qi, { query: queries[qi], answer, results, error: null, provider });
+								const entries = toCuratorSearchEntries(response);
+								for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+									const entry = entries[entryIndex];
+									const resultIndex = entryIndex === 0 ? qi : nextResultIndex++;
+									const indexedEntry: IndexedCuratorSearchEntry = {
+										...entry,
+										queryIndex: resultIndex,
+										query: queries[qi],
+									};
+									collected.set(resultIndex, indexedCuratorEntryToQueryResult(indexedEntry));
+									if (entry.error) {
+										handle.pushError(resultIndex, entry.error, entry.provider, { query: queries[qi], slotIndex: qi });
+									} else {
+										handle.pushResult(resultIndex, { ...entry, query: queries[qi], slotIndex: qi });
+									}
+								}
 							} catch (err) {
 								if (aborted || !isCommandActive()) break;
 								const message = err instanceof Error ? err.message : String(err);
-								handle.pushError(qi, message, requestedProvider);
+								handle.pushError(qi, message, requestedProvider, { query: queries[qi], slotIndex: qi });
 								collected.set(qi, { query: queries[qi], answer: "", results: [], error: message, provider: requestedProvider });
 							}
 						}

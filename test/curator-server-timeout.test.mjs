@@ -45,7 +45,8 @@ function baseCallbacks(resolveCancel) {
 		onSubmit: () => {},
 		onCancel: resolveCancel,
 		onProviderChange: () => {},
-		onAddSearch: async () => ({ answer: "", results: [], provider: "exa" }),
+		onAddSearch: async () => [{ answer: "", results: [], provider: "exa" }],
+		onAddSearchResults: () => {},
 		onSummarize: async () => ({
 			summary: "",
 			meta: { model: null, durationMs: 0, tokenEstimate: 0, fallbackUsed: true },
@@ -97,6 +98,57 @@ test("curator submit rejects contradictory summary metadata", async () => {
 			assert.equal(response.status, 400);
 			assert.deepEqual(await response.json(), { ok: false, error: "Invalid summaryMeta" });
 		}
+	} finally {
+		handle.close();
+	}
+});
+
+test("curator assigns one selectable result index per provider", async () => {
+	const { startCuratorServer } = await loadServer();
+	const indexedEntries = [];
+	let summarySelection = [];
+	const callbacks = baseCallbacks(() => {});
+	callbacks.onAddSearch = async () => [
+		{
+			answer: "Exa answer",
+			results: [{ title: "Exa", url: "https://example.com/exa", domain: "example.com" }],
+			provider: "exa",
+		},
+		{
+			answer: "Brave answer",
+			results: [{ title: "Brave", url: "https://example.com/brave", domain: "example.com" }],
+			provider: "brave",
+		},
+	];
+	callbacks.onAddSearchResults = (entries) => indexedEntries.push(...entries);
+	callbacks.onSummarize = async (selected) => {
+		summarySelection = selected;
+		return {
+			summary: "Combined summary",
+			meta: { model: null, durationMs: 0, tokenEstimate: 0, fallbackUsed: true },
+		};
+	};
+
+	const handle = await startCuratorServer(baseOptions(20), callbacks);
+	try {
+		const searchResponse = await fetch(new URL("/search", handle.url), {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ token: "test-token", query: "combined query", provider: "all" }),
+		});
+		assert.equal(searchResponse.status, 200);
+		const searchBody = await searchResponse.json();
+		assert.deepEqual(searchBody.entries.map(entry => entry.provider), ["exa", "brave"]);
+		assert.deepEqual(searchBody.entries.map(entry => entry.queryIndex), [1, 2]);
+		assert.deepEqual(indexedEntries.map(entry => entry.queryIndex), [1, 2]);
+
+		const summarizeResponse = await fetch(new URL("/summarize", handle.url), {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ token: "test-token", selected: [1, 2] }),
+		});
+		assert.equal(summarizeResponse.status, 200);
+		assert.deepEqual(summarySelection, [1, 2]);
 	} finally {
 		handle.close();
 	}

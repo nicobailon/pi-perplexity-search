@@ -105,6 +105,7 @@ test('provider "all" starts every eligible provider together, excludes AnySearch
 	const output = JSON.parse(child.stdout.trim());
 	assert.deepEqual([...output.started].sort(), ["brave", "exa", "tinyfish"]);
 	assert.equal(output.result.provider, "all");
+	assert.deepEqual(output.result.providerResponses.map((result) => result.provider), ["exa", "brave", "tinyfish"]);
 	assert.deepEqual(output.result.results.map((result) => result.url), [
 		"https://example.com/shared",
 		"https://example.com/tinyfish",
@@ -151,6 +152,10 @@ test('provider "all" keeps successful providers when another available provider 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
 	assert.equal(output.provider, "all");
+	assert.deepEqual(output.providerResponses.map((result) => result.provider), ["exa"]);
+	assert.equal(output.providerErrors.length, 1);
+	assert.equal(output.providerErrors[0].provider, "brave");
+	assert.match(output.providerErrors[0].error, /Brave Search API error 503/);
 	assert.equal(output.results[0].url, "https://example.com/exa");
 	assert.match(output.answer, /## Provider errors/);
 	assert.match(output.answer, /\*\*Brave:\*\* Brave Search API error 503/);
@@ -184,6 +189,8 @@ test('"all" is a Curator provider but remains invalid inside sequential searchRo
 	assert.match(page, /data-provider="all"/);
 	assert.match(page, />All<\/button>/);
 	assert.match(page, /provider-tag\.provider-all/);
+	assert.match(page, /function applySearchResponseEntries/);
+	assert.match(page, /data\.slotIndex/);
 
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-all-routing-"));
 	await writeFile(join(home, "web-search.json"), JSON.stringify({

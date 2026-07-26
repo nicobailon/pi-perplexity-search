@@ -57,8 +57,19 @@ export class SearchProviderError extends Error {
 	}
 }
 
+export interface ProviderSearchResponse extends SearchResponse {
+	provider: ResolvedSearchProvider;
+}
+
+export interface ProviderSearchFailure {
+	provider: ResolvedSearchProvider;
+	error: string;
+}
+
 export interface AttributedSearchResponse extends SearchResponse {
 	provider: ResolvedSearchProvider | "all";
+	providerResponses?: ProviderSearchResponse[];
+	providerErrors?: ProviderSearchFailure[];
 }
 
 const CONFIG_PATH = getWebSearchConfigPath();
@@ -371,6 +382,8 @@ async function searchWithAllProviders(
 		provider: "all",
 		answer: answerSections.join("\n\n"),
 		results,
+		providerResponses: successes as ProviderSearchResponse[],
+		...(failures.length > 0 ? { providerErrors: failures } : {}),
 		...(inlineContent.length > 0 ? { inlineContent } : {}),
 	};
 }

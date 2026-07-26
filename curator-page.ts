@@ -2158,6 +2158,49 @@ const SCRIPT = `(function() {
       '<div class="result-card-body">' + bodyHtml + "</div>";
   }
 
+  function createSearchingCard(queryText, provider) {
+    var card = document.createElement("div");
+    card.className = "result-card searching";
+    card.innerHTML =
+      '<div class="result-card-header">' +
+        '<input type="checkbox" checked disabled>' +
+        '<div class="result-card-info">' +
+          '<div class="result-card-query-row">' +
+            '<div class="result-card-query">' + escHtml(queryText) + "</div>" +
+            providerTagHtml(provider) +
+          "</div>" +
+          '<div class="result-card-meta"><span class="searching-dots">Searching</span></div>' +
+        "</div>" +
+      "</div>" +
+      buildAltChipsHtml(provider, queryText);
+    return card;
+  }
+
+  function insertResultCard(card, slotId, afterCard) {
+    card.dataset.slot = String(slotId);
+    if (afterCard && afterCard.parentNode === resultCardsEl) {
+      resultCardsEl.insertBefore(card, afterCard.nextSibling);
+      return;
+    }
+    var slotCards = resultCardsEl.querySelectorAll('.result-card[data-slot="' + slotId + '"]');
+    var lastCard = slotCards.length > 0 ? slotCards[slotCards.length - 1] : null;
+    if (lastCard) resultCardsEl.insertBefore(card, lastCard.nextSibling);
+    else resultCardsEl.appendChild(card);
+  }
+
+  function applySearchResponseEntries(primaryCard, data, queryText, providerHint, slotId) {
+    var entries = Array.isArray(data && data.entries) && data.entries.length > 0 ? data.entries : [data];
+    var previousCard = primaryCard;
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+      var entry = entries[entryIndex];
+      var entryProvider = normalizeProvider(entry && entry.provider, providerHint);
+      var targetCard = entryIndex === 0 ? primaryCard : createSearchingCard(queryText, entryProvider);
+      if (entryIndex > 0) insertResultCard(targetCard, slotId, previousCard);
+      applyResponseToCard(targetCard, entry, queryText, entryProvider, slotId);
+      previousCard = targetCard;
+    }
+  }
+
   function applyResponseToCard(card, data, queryText, providerHint, slotHint) {
     if (!card || !data) return;
     if (submitted || timerExpired) return;
@@ -2173,6 +2216,9 @@ const SCRIPT = `(function() {
     }
     if (queryIndex !== null && typeof slotId === "number") {
       queryIndexToSlot.set(queryIndex, slotId);
+    }
+    if (typeof slotId === "number") {
+      card.dataset.slot = String(slotId);
     }
 
     var provider = normalizeProvider(data.provider, providerHint);
@@ -2316,21 +2362,8 @@ const SCRIPT = `(function() {
       var batchCards = [];
       for (var bi = 0; bi < batchQueries.length; bi++) {
         var bq = batchQueries[bi];
-        var card = document.createElement("div");
-        card.className = "result-card searching";
-        card.innerHTML =
-          '<div class="result-card-header">' +
-            '<input type="checkbox" checked disabled>' +
-            '<div class="result-card-info">' +
-              '<div class="result-card-query-row">' +
-                '<div class="result-card-query">' + escHtml(bq.query) + "</div>" +
-                providerTagHtml(provider) +
-              "</div>" +
-              '<div class="result-card-meta"><span class="searching-dots">Searching</span></div>' +
-            "</div>" +
-          "</div>" +
-          buildAltChipsHtml(provider, bq.query);
-        resultCardsEl.appendChild(card);
+        var card = createSearchingCard(bq.query, provider);
+        insertResultCard(card, bq.slotId, null);
         batchCards.push(card);
       }
       updateSummaryText();
@@ -2349,7 +2382,7 @@ const SCRIPT = `(function() {
               }, slot.query, provider, slot.slotId);
               return;
             }
-            applyResponseToCard(searchingCard, data, slot.query, provider, slot.slotId);
+            applySearchResponseEntries(searchingCard, data, slot.query, provider, slot.slotId);
           })
           .catch(function(err) {
             if (submitted || timerExpired) return;
@@ -2398,25 +2431,8 @@ const SCRIPT = `(function() {
       allQueries.push({ slotId: slotId, query: altQuery });
 
       var parentCard = chip.closest(".result-card");
-      var newCard = document.createElement("div");
-      newCard.className = "result-card searching";
-      newCard.innerHTML =
-        '<div class="result-card-header">' +
-          '<input type="checkbox" checked disabled>' +
-          '<div class="result-card-info">' +
-            '<div class="result-card-query-row">' +
-              '<div class="result-card-query">' + escHtml(altQuery) + "</div>" +
-              providerTagHtml(altProvider) +
-            "</div>" +
-            '<div class="result-card-meta"><span class="searching-dots">Searching</span></div>' +
-          "</div>" +
-        "</div>" +
-        buildAltChipsHtml(altProvider, altQuery);
-      if (parentCard && parentCard.nextSibling) {
-        resultCardsEl.insertBefore(newCard, parentCard.nextSibling);
-      } else {
-        resultCardsEl.appendChild(newCard);
-      }
+      var newCard = createSearchingCard(altQuery, altProvider);
+      insertResultCard(newCard, slotId, parentCard);
       updateSummaryText();
 
       postJson("/search", { query: altQuery, provider: altProvider })
@@ -2430,7 +2446,7 @@ const SCRIPT = `(function() {
             }, altQuery, altProvider, slotId);
             return;
           }
-          applyResponseToCard(newCard, data, altQuery, altProvider, slotId);
+          applySearchResponseEntries(newCard, data, altQuery, altProvider, slotId);
         })
         .catch(function(err) {
           removeSlot(slotId);
@@ -2505,21 +2521,8 @@ const SCRIPT = `(function() {
     var requestedProvider = currentSearchProvider;
     var displayProvider = currentProvider;
 
-    var card = document.createElement("div");
-    card.className = "result-card searching";
-    card.innerHTML =
-      '<div class="result-card-header">' +
-        '<input type="checkbox" checked disabled>' +
-        '<div class="result-card-info">' +
-          '<div class="result-card-query-row">' +
-            '<div class="result-card-query">' + escHtml(text) + "</div>" +
-            providerTagHtml(displayProvider) +
-          "</div>" +
-          '<div class="result-card-meta"><span class="searching-dots">Searching</span></div>' +
-        "</div>" +
-      "</div>" +
-      buildAltChipsHtml(displayProvider, text);
-    resultCardsEl.appendChild(card);
+    var card = createSearchingCard(text, displayProvider);
+    insertResultCard(card, slotId, null);
     updateSummaryText();
     resetTimer();
 
@@ -2539,7 +2542,7 @@ const SCRIPT = `(function() {
 
         if (submitted || timerExpired) return;
 
-        applyResponseToCard(card, data, text, displayProvider, slotId);
+        applySearchResponseEntries(card, data, text, displayProvider, slotId);
       })
       .catch(function(err) {
         removeSlot(slotId);
@@ -2682,22 +2685,9 @@ const SCRIPT = `(function() {
   } else {
     for (var i = 0; i < queries.length; i++) {
       queryIndexToSlot.set(i, i);
-      var card = document.createElement("div");
-      card.className = "result-card searching";
+      var card = createSearchingCard(queries[i], initialDefaultProvider);
       card.dataset.qi = i;
-      card.innerHTML =
-        '<div class="result-card-header">' +
-          '<input type="checkbox" checked disabled>' +
-          '<div class="result-card-info">' +
-            '<div class="result-card-query-row">' +
-              '<div class="result-card-query">' + escHtml(queries[i]) + "</div>" +
-              providerTagHtml(initialDefaultProvider) +
-            "</div>" +
-            '<div class="result-card-meta"><span class="searching-dots">Searching</span></div>' +
-          "</div>" +
-        "</div>" +
-        buildAltChipsHtml(initialDefaultProvider, queries[i]);
-      resultCardsEl.appendChild(card);
+      insertResultCard(card, i, null);
     }
   }
 
@@ -2722,30 +2712,38 @@ const SCRIPT = `(function() {
     var data = parseSseEventData("result", e);
     if (!data) return;
 
-    var card = resultCardsEl.querySelector('.result-card[data-qi="' + data.queryIndex + '"]');
-    if (!card) return;
-
-    var slotId = queryIndexToSlot.get(data.queryIndex);
+    var queryText = data.query || queries[data.queryIndex] || "";
+    var slotId = typeof data.slotIndex === "number" ? data.slotIndex : queryIndexToSlot.get(data.queryIndex);
     if (typeof slotId !== "number") slotId = data.queryIndex;
-    applyResponseToCard(card, data, data.query || queries[data.queryIndex], data.provider, slotId);
+    var card = resultCardsEl.querySelector('.result-card[data-qi="' + data.queryIndex + '"]');
+    if (!card) {
+      card = createSearchingCard(queryText, data.provider);
+      card.dataset.qi = data.queryIndex;
+      insertResultCard(card, slotId, null);
+    }
+    applyResponseToCard(card, data, queryText, data.provider, slotId);
   });
 
   es.addEventListener("search-error", function(e) {
     var data = parseSseEventData("search-error", e);
     if (!data) return;
 
-    var card = resultCardsEl.querySelector('.result-card[data-qi="' + data.queryIndex + '"]');
-    if (!card) return;
-
-    var slotId = queryIndexToSlot.get(data.queryIndex);
+    var queryText = data.query || queries[data.queryIndex] || "";
+    var slotId = typeof data.slotIndex === "number" ? data.slotIndex : queryIndexToSlot.get(data.queryIndex);
     if (typeof slotId !== "number") slotId = data.queryIndex;
+    var card = resultCardsEl.querySelector('.result-card[data-qi="' + data.queryIndex + '"]');
+    if (!card) {
+      card = createSearchingCard(queryText, data.provider);
+      card.dataset.qi = data.queryIndex;
+      insertResultCard(card, slotId, null);
+    }
     applyResponseToCard(card, {
       queryIndex: data.queryIndex,
       answer: "",
       results: [],
       error: data.error || "Search failed",
       provider: data.provider,
-    }, data.query || queries[data.queryIndex], data.provider, slotId);
+    }, queryText, data.provider, slotId);
   });
 
   es.addEventListener("done", function() {
