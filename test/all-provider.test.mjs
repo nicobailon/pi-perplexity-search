@@ -191,6 +191,8 @@ test('"all" is a Curator provider but remains invalid inside sequential searchRo
 	assert.match(page, /provider-tag\.provider-all/);
 	assert.match(page, /function applySearchResponseEntries/);
 	assert.match(page, /data\.slotIndex/);
+	assert.match(page, /var idleSec = searchesDone \? Math\.floor/,
+		"curator timeout must not start while initial provider searches are still running");
 
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-all-routing-"));
 	await writeFile(join(home, "web-search.json"), JSON.stringify({

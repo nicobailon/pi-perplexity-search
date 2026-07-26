@@ -2250,7 +2250,7 @@ const SCRIPT = `(function() {
   function resetTimer() { lastInteraction = Date.now(); }
 
   function updateTimer() {
-    var idleSec = Math.floor((Date.now() - lastInteraction) / 1000);
+    var idleSec = searchesDone ? Math.floor((Date.now() - lastInteraction) / 1000) : 0;
     var remaining = Math.max(0, timeoutSec - idleSec);
     timerEl.textContent = formatTime(remaining);
 
