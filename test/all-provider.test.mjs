@@ -194,6 +194,32 @@ test('"all" is a Curator provider but remains invalid inside sequential searchRo
 	assert.match(page, /var idleSec = searchesDone \? Math\.floor/,
 		"curator timeout must not start while initial provider searches are still running");
 
+	const geminiWebOnlyPage = generateCuratorPage(
+		["gemini web only"],
+		"session-token",
+		20,
+		{
+			all: false,
+			openai: false,
+			brave: false,
+			parallel: false,
+			tinyfish: false,
+			tavily: false,
+			serpdive: false,
+			searxng: false,
+			perplexity: false,
+			exa: false,
+			gemini: true,
+			anysearch: false,
+		},
+		"gemini",
+		"gemini",
+		[],
+		null,
+	);
+	assert.doesNotMatch(geminiWebOnlyPage, /data-provider="all"/);
+	assert.match(geminiWebOnlyPage, /data-provider="gemini"/);
+
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-all-routing-"));
 	await writeFile(join(home, "web-search.json"), JSON.stringify({
 		searchRouting: { providers: ["all"], fallbackOn: ["network"] },

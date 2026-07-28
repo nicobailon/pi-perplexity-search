@@ -283,6 +283,7 @@ function getCuratorTimeoutSeconds(): number {
 
 async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderAvailability> {
 	const geminiWebAvail = await isGeminiWebAvailable();
+	const geminiApiAvail = isGeminiApiAvailable();
 	const providers = {
 		openai: await isOpenAISearchAvailable(ctx),
 		brave: isBraveAvailable(),
@@ -293,11 +294,11 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		searxng: isSearXNGAvailable(),
 		perplexity: isPerplexityAvailable(),
 		exa: isExaAvailable(),
-		gemini: isGeminiApiAvailable() || !!geminiWebAvail,
+		gemini: geminiApiAvail || !!geminiWebAvail,
 		anysearch: isAnySearchAvailable(),
 	};
 	return {
-		all: Object.entries(providers).some(([provider, available]) => provider !== "anysearch" && available),
+		all: Object.entries(providers).some(([provider, available]) => provider !== "anysearch" && provider !== "gemini" && available) || geminiApiAvail,
 		...providers,
 	};
 }
