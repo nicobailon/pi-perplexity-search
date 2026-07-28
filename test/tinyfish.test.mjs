@@ -308,6 +308,7 @@ test("curator page exposes TinyFish as a manual provider", async () => {
 		"session-token",
 		20,
 		{
+			all: false,
 			openai: false,
 			brave: false,
 			parallel: false,

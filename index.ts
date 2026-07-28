@@ -118,6 +118,7 @@ interface WebSearchConfig {
 }
 
 interface ProviderAvailability {
+	all: boolean;
 	openai: boolean;
 	brave: boolean;
 	parallel: boolean;
@@ -133,11 +134,12 @@ interface ProviderAvailability {
 
 type WebSearchWorkflow = "none" | "summary-review" | "auto-summary";
 type CuratorWorkflow = "summary-review";
+type CuratorProvider = Exclude<SearchProvider, "auto">;
 type SummaryWorkflow = "summary-review" | "auto-summary";
 
 interface CuratorBootstrap {
 	availableProviders: ProviderAvailability;
-	defaultProvider: ResolvedSearchProvider;
+	defaultProvider: CuratorProvider;
 	timeoutSeconds: number;
 }
 
@@ -232,7 +234,7 @@ function normalizeProviderInput(value: unknown): SearchProvider | undefined {
 	if (value === undefined) return undefined;
 	if (typeof value !== "string") return "auto";
 	const normalized = value.trim().toLowerCase();
-	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"];
+	const valid: SearchProvider[] = ["auto", "all", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"];
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
@@ -281,7 +283,7 @@ function getCuratorTimeoutSeconds(): number {
 
 async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderAvailability> {
 	const geminiWebAvail = await isGeminiWebAvailable();
-	return {
+	const providers = {
 		openai: await isOpenAISearchAvailable(ctx),
 		brave: isBraveAvailable(),
 		parallel: isParallelAvailable(),
@@ -293,6 +295,10 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		exa: isExaAvailable(),
 		gemini: isGeminiApiAvailable() || !!geminiWebAvail,
 		anysearch: isAnySearchAvailable(),
+	};
+	return {
+		all: Object.entries(providers).some(([provider, available]) => provider !== "anysearch" && available),
+		...providers,
 	};
 }
 
@@ -336,7 +342,7 @@ function resolveProvider(
 	requested: unknown,
 	available: ProviderAvailability,
 	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
-): ResolvedSearchProvider {
+): CuratorProvider {
 	const provider = resolveRequestedProvider(requested);
 	const preferOpenAI = shouldPreferOpenAI(options);
 
@@ -348,6 +354,9 @@ function resolveProvider(
 			}
 			return routing.providers[0];
 		}
+		return firstAvailableProvider(available, preferOpenAI, "exa");
+	}
+	if (provider === "all" && !available.all) {
 		return firstAvailableProvider(available, preferOpenAI, "exa");
 	}
 	if (provider === "openai" && !available.openai) {
@@ -403,7 +412,7 @@ interface PendingCurate {
 	recencyFilter?: "day" | "week" | "month" | "year";
 	domainFilter?: string[];
 	availableProviders: ProviderAvailability;
-	defaultProvider: ResolvedSearchProvider;
+	defaultProvider: CuratorProvider;
 	searchProvider: SearchProvider;
 	summaryModels: Array<{ value: string; label: string }>;
 	defaultSummaryModel: string | null;
@@ -1389,7 +1398,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, TinyFish, Tavily, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Tavily, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
+			`Search the web using OpenAI, Brave, Parallel, TinyFish, Tavily, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Use provider "all" to search every eligible provider except AnySearch simultaneously and combine their responses. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Tavily, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
@@ -1402,7 +1411,7 @@ export default function (pi: ExtensionAPI) {
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(
-				StringEnum(["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider; omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
+				StringEnum(["auto", "all", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider; use all to search every eligible provider except AnySearch simultaneously, omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
 			),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
@@ -1949,7 +1958,7 @@ export default function (pi: ExtensionAPI) {
 			fetchContent: Type.Optional(Type.Boolean({ description: "Fetch up to 5 result pages for exact passage extraction." })),
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
-			provider: Type.Optional(StringEnum(["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider." })),
+			provider: Type.Optional(StringEnum(["auto", "all", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider; all searches every eligible provider except AnySearch simultaneously." })),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";
@@ -2558,7 +2567,7 @@ export default function (pi: ExtensionAPI) {
 			const availableProviders = bootstrap.availableProviders;
 			const initialProvider = bootstrap.defaultProvider;
 			const curatorTimeoutSeconds = bootstrap.timeoutSeconds;
-			let currentProvider = initialProvider;
+			let currentProvider: CuratorProvider = initialProvider;
 			const rawSearchProvider = normalizeProviderInput(loadConfig().provider ?? "auto") ?? "auto";
 			let currentSearchProvider: SearchProvider = rawSearchProvider === "auto" ? "auto" : initialProvider;
 			const summaryContext: SummaryGenerationContext = {

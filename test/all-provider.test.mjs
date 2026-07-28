@@ -1,0 +1,209 @@
+import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { test } from "node:test";
+
+const searchModuleUrl = new URL("../gemini-search.ts", import.meta.url).href;
+const curatorPageModuleUrl = new URL("../curator-page.ts", import.meta.url).href;
+
+function runChild(script, env = {}) {
+	const childEnv = { ...process.env };
+	for (const key of [
+		"PI_CODING_AGENT_DIR",
+		"XDG_CONFIG_HOME",
+		"OPENAI_API_KEY",
+		"BRAVE_API_KEY",
+		"PARALLEL_API_KEY",
+		"TINYFISH_API_KEY",
+		"TAVILY_API_KEY",
+		"SERPDIVE_API_KEY",
+		"ANYSEARCH_API_KEY",
+		"SEARXNG_BASE_URL",
+		"EXA_API_KEY",
+		"PERPLEXITY_API_KEY",
+		"GEMINI_API_KEY",
+		"CLOUDFLARE_API_KEY",
+	]) {
+		delete childEnv[key];
+	}
+	Object.assign(childEnv, env);
+	return spawnSync(process.execPath, ["--input-type=module"], {
+		input: script,
+		encoding: "utf8",
+		env: childEnv,
+		maxBuffer: 2 * 1024 * 1024,
+		timeout: 10_000,
+	});
+}
+
+test('provider "all" starts every eligible provider together, excludes AnySearch, and deduplicates sources', async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-all-"));
+	const child = runChild(`
+		const started = [];
+		const expected = new Set(["exa", "brave", "tinyfish"]);
+		let releaseGate;
+		const gate = new Promise((resolve) => { releaseGate = resolve; });
+
+		async function waitForPeers(provider) {
+			started.push(provider);
+			if (expected.size === new Set(started).size && [...expected].every((name) => started.includes(name))) {
+				releaseGate();
+			}
+			await gate;
+		}
+
+		globalThis.fetch = async (url) => {
+			const target = String(url);
+			if (target.startsWith("https://api.anysearch.com/")) {
+				throw new Error("AnySearch must not run for provider all");
+			}
+			if (target === "https://mcp.exa.ai/mcp") {
+				await waitForPeers("exa");
+				return new Response(JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						content: [{
+							type: "text",
+							text: "Title: Shared result\\nURL: https://example.com/shared\\nText: Exa answer\\n---",
+						}],
+					},
+				}), { status: 200 });
+			}
+			if (target.startsWith("https://api.search.brave.com/")) {
+				await waitForPeers("brave");
+				return new Response(JSON.stringify({
+					web: { results: [{ title: "Shared result", url: "https://example.com/shared", description: "Brave answer" }] },
+				}), { status: 200 });
+			}
+			if (target.startsWith("https://api.search.tinyfish.ai")) {
+				await waitForPeers("tinyfish");
+				return new Response(JSON.stringify({
+					query: "combined",
+					results: [{ title: "TinyFish result", url: "https://example.com/tinyfish", snippet: "TinyFish answer" }],
+					total_results: 1,
+					page: 0,
+				}), { status: 200 });
+			}
+			throw new Error("Unexpected fetch " + target);
+		};
+
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("combined", { provider: "all" });
+		console.log(JSON.stringify({ started, result }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		BRAVE_API_KEY: "brave-test-key",
+		TINYFISH_API_KEY: "tinyfish-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr || child.error?.message);
+	const output = JSON.parse(child.stdout.trim());
+	assert.deepEqual([...output.started].sort(), ["brave", "exa", "tinyfish"]);
+	assert.equal(output.result.provider, "all");
+	assert.deepEqual(output.result.results.map((result) => result.url), [
+		"https://example.com/shared",
+		"https://example.com/tinyfish",
+	]);
+	assert.match(output.result.answer, /## Exa/);
+	assert.match(output.result.answer, /## Brave/);
+	assert.match(output.result.answer, /## TinyFish/);
+	assert.doesNotMatch(output.result.answer, /AnySearch/);
+});
+
+test('provider "all" keeps successful providers when another available provider fails', async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-all-partial-"));
+	const child = runChild(`
+		globalThis.fetch = async (url) => {
+			const target = String(url);
+			if (target === "https://mcp.exa.ai/mcp") {
+				return new Response(JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						content: [{
+							type: "text",
+							text: "Title: Exa result\\nURL: https://example.com/exa\\nText: Exa answer\\n---",
+						}],
+					},
+				}), { status: 200 });
+			}
+			if (target.startsWith("https://api.search.brave.com/")) {
+				return new Response("temporarily unavailable", { status: 503 });
+			}
+			throw new Error("Unexpected fetch " + target);
+		};
+
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("partial", { provider: "all" });
+		console.log(JSON.stringify(result));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		BRAVE_API_KEY: "brave-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.provider, "all");
+	assert.equal(output.results[0].url, "https://example.com/exa");
+	assert.match(output.answer, /## Provider errors/);
+	assert.match(output.answer, /\*\*Brave:\*\* Brave Search API error 503/);
+});
+
+test('"all" is a Curator provider but remains invalid inside sequential searchRouting', async () => {
+	const { generateCuratorPage } = await import(curatorPageModuleUrl);
+	const page = generateCuratorPage(
+		["combined query"],
+		"session-token",
+		20,
+		{
+			all: true,
+			openai: false,
+			brave: true,
+			parallel: false,
+			tinyfish: true,
+			tavily: false,
+			serpdive: false,
+			searxng: false,
+			perplexity: false,
+			exa: true,
+			gemini: false,
+			anysearch: true,
+		},
+		"all",
+		"all",
+		[],
+		null,
+	);
+	assert.match(page, /data-provider="all"/);
+	assert.match(page, />All<\/button>/);
+	assert.match(page, /provider-tag\.provider-all/);
+
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-all-routing-"));
+	await writeFile(join(home, "web-search.json"), JSON.stringify({
+		searchRouting: { providers: ["all"], fallbackOn: ["network"] },
+	}));
+	const child = runChild(`
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		try {
+			await search("invalid routing", { provider: "auto" });
+			console.log(JSON.stringify({ ok: true }));
+		} catch (error) {
+			console.log(JSON.stringify({ ok: false, error: String(error) }));
+		}
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.ok, false);
+	assert.match(output.error, /searchRouting\.providers .*invalid provider: all/);
+});

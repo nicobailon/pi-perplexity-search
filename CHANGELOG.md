@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added `openaiResponsesUrl` for routing OpenAI `web_search` and `source_check` calls through third-party Responses-compatible gateways while keeping the official OpenAI endpoint as the default. Thanks The Loki (`@the-loki`) for issue #174.
+- Added `provider: "all"` to search every available provider except AnySearch simultaneously, combine provider-labeled answers for Curator summaries, deduplicate sources and inline content, and preserve partial successes with per-provider diagnostics. Thanks José Antonio Galiano Sandoval (`@jagaliano`) for PR #173.
 - Added TinyFish as a first-class search and extraction provider with `tinyfishApiKey` / `TINYFISH_API_KEY` credentials, domain and recency filters, paginated result counts, batched inline content, ordered routing, curator selection, and a hosted `fetch_content` fallback before Parallel. Thanks José Antonio Galiano Sandoval (`@jagaliano`) for PR #172.
 
 ## [0.14.0] - 2026-07-25

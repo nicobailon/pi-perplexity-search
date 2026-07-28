@@ -16,8 +16,8 @@ import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
 import { isAnySearchAvailable, searchWithAnySearch } from "./anysearch.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tinyfish" | "tavily" | "searxng" | "perplexity" | "gemini" | "exa" | "serpdive" | "anysearch";
-export type ResolvedSearchProvider = Exclude<SearchProvider, "auto">;
+export type SearchProvider = "auto" | "all" | "openai" | "brave" | "parallel" | "tinyfish" | "tavily" | "searxng" | "perplexity" | "gemini" | "exa" | "serpdive" | "anysearch";
+export type ResolvedSearchProvider = Exclude<SearchProvider, "auto" | "all">;
 export type SearchProviderErrorKind =
 	| "transient"
 	| "quota"
@@ -58,12 +58,13 @@ export class SearchProviderError extends Error {
 }
 
 export interface AttributedSearchResponse extends SearchResponse {
-	provider: ResolvedSearchProvider;
+	provider: ResolvedSearchProvider | "all";
 }
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-2.5-flash";
-const VALID_SEARCH_PROVIDERS: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch"];
+const VALID_SEARCH_PROVIDERS: SearchProvider[] = ["auto", "all", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch"];
+const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "tavily", "serpdive", "perplexity", "gemini"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network"] as const;
 
 type SearchConfig = {
@@ -117,7 +118,7 @@ function normalizeSearchRouting(value: unknown): SearchRoutingConfig {
 	const providers: ResolvedSearchProvider[] = [];
 	for (const provider of raw.providers) {
 		const normalized = typeof provider === "string" ? provider.trim().toLowerCase() : "";
-		if (!VALID_SEARCH_PROVIDERS.includes(normalized as SearchProvider) || normalized === "auto") {
+		if (!VALID_SEARCH_PROVIDERS.includes(normalized as SearchProvider) || normalized === "auto" || normalized === "all") {
 			throw new Error(`searchRouting.providers in ${CONFIG_PATH} contains an invalid provider: ${String(provider)}`);
 		}
 		if (providers.includes(normalized as ResolvedSearchProvider)) {
@@ -298,6 +299,82 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	return isExaAvailable();
 }
 
+function providerLabel(provider: ResolvedSearchProvider): string {
+	if (provider === "openai") return "OpenAI";
+	if (provider === "tinyfish") return "TinyFish";
+	if (provider === "serpdive") return "SERPdive";
+	if (provider === "searxng") return "SearXNG";
+	return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+async function searchWithAllProviders(
+	query: string,
+	options: FullSearchOptions,
+): Promise<AttributedSearchResponse> {
+	const availability = await Promise.all(ALL_SEARCH_PROVIDERS.map(async (provider) => ({
+		provider,
+		available: provider === "gemini"
+			? isGeminiApiAvailable()
+			: await isResolvedProviderAvailable(provider, options),
+	})));
+	const providers = availability.filter((entry) => entry.available).map((entry) => entry.provider);
+	if (providers.length === 0) {
+		throw new Error("No configured search provider available for provider \"all\". AnySearch is excluded.");
+	}
+
+	const settled = await Promise.allSettled(
+		providers.map((provider) => searchWithResolvedProvider(provider, query, options)),
+	);
+	if (options.signal?.aborted) throw new Error("Aborted");
+
+	const successes: AttributedSearchResponse[] = [];
+	const failures: Array<{ provider: ResolvedSearchProvider; error: string }> = [];
+	for (let index = 0; index < settled.length; index++) {
+		const outcome = settled[index];
+		if (outcome.status === "fulfilled") {
+			successes.push(outcome.value);
+		} else {
+			failures.push({ provider: providers[index], error: errorMessage(outcome.reason) });
+		}
+	}
+	if (successes.length === 0) {
+		throw new Error(`All-provider search failed:\n  - ${failures.map(({ provider, error }) => `${providerLabel(provider)}: ${error}`).join("\n  - ")}`);
+	}
+
+	const results: SearchResult[] = [];
+	const seenResultUrls = new Set<string>();
+	const inlineContent: NonNullable<SearchResponse["inlineContent"]> = [];
+	const seenInlineUrls = new Set<string>();
+	for (const response of successes) {
+		for (const result of response.results) {
+			if (seenResultUrls.has(result.url)) continue;
+			seenResultUrls.add(result.url);
+			results.push(result);
+		}
+		for (const content of response.inlineContent ?? []) {
+			if (seenInlineUrls.has(content.url)) continue;
+			seenInlineUrls.add(content.url);
+			inlineContent.push(content);
+		}
+	}
+
+	const answerSections = successes.map((response) =>
+		`## ${providerLabel(response.provider as ResolvedSearchProvider)}\n\n${response.answer || "(No answer text returned.)"}`
+	);
+	if (failures.length > 0) {
+		answerSections.push(
+			`## Provider errors\n\n${failures.map(({ provider, error }) => `- **${providerLabel(provider)}:** ${error}`).join("\n")}`,
+		);
+	}
+
+	return {
+		provider: "all",
+		answer: answerSections.join("\n\n"),
+		results,
+		...(inlineContent.length > 0 ? { inlineContent } : {}),
+	};
+}
+
 async function searchWithConfiguredRouting(
 	query: string,
 	options: FullSearchOptions,
@@ -327,6 +404,7 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	const provider = options.provider === undefined || options.provider === "auto"
 		? config.searchProvider
 		: options.provider;
+	if (provider === "all") return searchWithAllProviders(query, options);
 	if (provider !== "auto") return searchWithResolvedProvider(provider, query, options);
 	if (!config.searchProviderConfigured && config.searchRouting) {
 		return searchWithConfiguredRouting(query, options, config.searchRouting);
