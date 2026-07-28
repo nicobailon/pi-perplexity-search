@@ -116,6 +116,49 @@ test('provider "all" starts every eligible provider together, excludes AnySearch
 	assert.doesNotMatch(output.result.answer, /AnySearch/);
 });
 
+test('provider "all" uses Gemini API without falling back to Gemini Web', async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-all-gemini-api-"));
+	const child = runChild(`
+		globalThis.fetch = async (url) => {
+			const target = String(url);
+			if (target === "https://mcp.exa.ai/mcp") {
+				return new Response(JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						content: [{
+							type: "text",
+							text: "Title: Exa result\\nURL: https://example.com/exa\\nText: Exa answer\\n---",
+						}],
+					},
+				}), { status: 200 });
+			}
+			if (target.includes("generativelanguage.googleapis.com")) {
+				return new Response("api unavailable", { status: 503 });
+			}
+			throw new Error("Unexpected fetch " + target);
+		};
+
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("gemini api failure", { provider: "all" });
+		console.log(JSON.stringify(result));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		GEMINI_API_KEY: "synthetic-gemini-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.provider, "all");
+	assert.deepEqual(output.providerResponses.map((result) => result.provider), ["exa"]);
+	assert.equal(output.providerErrors.length, 1);
+	assert.equal(output.providerErrors[0].provider, "gemini");
+	assert.match(output.providerErrors[0].error, /Gemini API error 503/);
+	assert.doesNotMatch(output.providerErrors[0].error, /Gemini Web/);
+});
+
 test('provider "all" keeps successful providers when another available provider fails', async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-all-partial-"));
 	const child = runChild(`

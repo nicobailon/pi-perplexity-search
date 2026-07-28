@@ -318,6 +318,17 @@ function providerLabel(provider: ResolvedSearchProvider): string {
 	return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
+async function searchWithAllProvider(
+	provider: ResolvedSearchProvider,
+	query: string,
+	options: FullSearchOptions,
+): Promise<AttributedSearchResponse> {
+	if (provider !== "gemini") return searchWithResolvedProvider(provider, query, options);
+	const result = await searchWithGeminiApi(query, options);
+	if (result) return { ...result, provider };
+	throw new Error("Gemini API search returned no results.");
+}
+
 async function searchWithAllProviders(
 	query: string,
 	options: FullSearchOptions,
@@ -334,7 +345,7 @@ async function searchWithAllProviders(
 	}
 
 	const settled = await Promise.allSettled(
-		providers.map((provider) => searchWithResolvedProvider(provider, query, options)),
+		providers.map((provider) => searchWithAllProvider(provider, query, options)),
 	);
 	if (options.signal?.aborted) throw new Error("Aborted");
 
