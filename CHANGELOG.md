@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added Gemini PDF-to-Markdown conversion with inline document input, page-structure validation, OCR/layout preservation on a best-effort basis, and automatic local `unpdf` fallback for incomplete or failed model output.
+- Added optional `pdf.maxSizeMB` configuration with the existing 20MB default, a 50MB cap, early `Content-Length` rejection, and streamed byte enforcement for missing or inaccurate response lengths.
+
+### Changed
+- Separated the PDF download timeout from Gemini processing and preserved caller cancellation without changing local video extraction.
+
 ## [0.15.0] - 2026-07-28
 
 ### Added

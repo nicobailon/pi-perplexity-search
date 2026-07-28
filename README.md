@@ -199,7 +199,9 @@ Requires `ffmpeg` (and `yt-dlp` for YouTube). Timestamps accept `H:MM:SS`, `MM:S
 
 ### PDFs
 
-PDF URLs are extracted as text and saved to `~/Downloads/` as markdown. The agent can then `read` specific sections without loading the full document into context. Text-based extraction only — no OCR.
+PDF URLs are converted to structured Markdown and saved to `~/Downloads/`. When the Gemini API or a configured Cloudflare AI Gateway is available, the converter sends the PDF inline to Gemini, preserving page markers, headings, lists, tables, links, footnotes, equations, and scanned text on a best-effort basis. Incomplete, blocked, malformed, timed-out, or failed Gemini output automatically falls back to local `unpdf` text extraction.
+
+The download limit remains 20MB by default. Set `pdf.maxSizeMB` to raise it up to Gemini's [documented 50MB PDF input limit](https://ai.google.dev/gemini-api/docs/generate-content/document-processing). Both `Content-Length` and the bytes actually received are enforced. The default extraction limit is 100 pages; longer documents include a truncation notice.
 
 ### Blocked pages
 
@@ -215,7 +217,7 @@ fetch_content(url)
   → Video file?  Gemini API (Files API) → Gemini Web (if browser cookies enabled)
   → GitHub URL?  Clone repo, return file contents + local path
   → YouTube URL? Gemini Web (if browser cookies enabled) → Gemini API → Perplexity
-  → HTTP fetch → PDF? Extract text, save to ~/Downloads/
+  → HTTP fetch → PDF? Gemini Markdown conversion → unpdf fallback → save to ~/Downloads/
                → HTML? Readability → RSC parser → Firecrawl (if configured, cache-only by default) → Jina Reader → TinyFish → Parallel → Gemini fallback
                → Text/JSON/Markdown? Return directly
 ```
@@ -318,6 +320,9 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
     "enabled": true,
     "preferredModel": "gemini-3-flash-preview",
     "maxSizeMB": 50
+  },
+  "pdf": {
+    "maxSizeMB": 20
   },
   "fetchContent": {
     "domainPolicy": {
@@ -430,7 +435,8 @@ Rate limits: Perplexity is capped at 10 requests/minute (client-side). TinyFish 
 - Chromium cookie extraction for Gemini Web is opt-in via `allowBrowserCookies: true` or `PI_ALLOW_BROWSER_COOKIES=1`; no browser data or password store is touched while it is disabled. On macOS, enabling it may trigger a Keychain dialog. Required cookie names are checked before password-store access, and browser encryption passwords are cached only in-process. If `node:sqlite` is unavailable, the reader falls back to the `sqlite3` CLI or Python stdlib; `/google-account` reports a sanitized SQLite/profile/password diagnostic when extraction fails.
 - YouTube private/age-restricted videos may fail on all extraction paths.
 - Gemini can process videos up to ~1 hour; longer videos may be truncated.
-- PDFs are text-extracted only (no OCR for scanned documents).
+- PDF layout reconstruction and OCR are best-effort model output when Gemini is configured. Without Gemini, the local `unpdf` fallback cannot OCR scanned pages.
+- Gemini PDF output is bounded by the model's output-token limit; incomplete output is rejected and retried with the local fallback.
 - GitHub branch names with slashes may misresolve file paths; the clone still works and the agent can navigate manually.
 - Non-code GitHub URLs (issues, PRs, wiki) fall through to normal web extraction.
 
@@ -458,13 +464,14 @@ Rate limits: Perplexity is capped at 10 requests/minute (client-side). TinyFish 
 | `gemini-web.ts` | Gemini Web client (cookie auth, StreamGenerate) |
 | `gemini-web-config.ts` | Gemini Web profile and browser-cookie opt-in config |
 | `gemini-api.ts` | Gemini REST API client (generateContent) |
+| `gemini-pdf-extract.ts` | Gemini inline PDF-to-Markdown conversion and output validation |
 | `chrome-cookies.ts` | macOS/Linux Chromium-based cookie extraction (Keychain/secret-tool + SQLite) |
 | `youtube-extract.ts` | YouTube detection, three-tier extraction, frame extraction |
 | `video-extract.ts` | Local video detection, Files API upload, Gemini analysis |
 | `github-extract.ts` | GitHub URL parsing, clone cache, content generation |
 | `github-api.ts` | GitHub API fallback for large repos and commit SHAs |
 | `perplexity.ts` | Perplexity API client with rate limiting |
-| `pdf-extract.ts` | PDF text extraction, saves to markdown |
+| `pdf-extract.ts` | PDF metadata, Gemini/local fallback orchestration, and Markdown saving |
 | `rsc-extract.ts` | RSC flight data parser for Next.js pages |
 | `utils.ts` | Shared formatting and error helpers |
 | `storage.ts` | Session-aware result storage |

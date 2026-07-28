@@ -4,7 +4,7 @@ import TurndownService from "turndown";
 import pLimit from "p-limit";
 import { activityMonitor } from "./activity.ts";
 import { extractRSCContent } from "./rsc-extract.ts";
-import { extractPDFToMarkdown, isPDF } from "./pdf-extract.ts";
+import { extractPDFToMarkdown, isPDF, loadPDFConfig } from "./pdf-extract.ts";
 import { extractGitHub } from "./github-extract.ts";
 import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, extractYouTubeFrames, getYouTubeStreamInfo } from "./youtube-extract.ts";
 import { CredentialResolutionError } from "./credential-source.ts";
@@ -19,7 +19,12 @@ import { formatSeconds, getWebSearchConfigPath } from "./utils.ts";
 const DEFAULT_TIMEOUT_MS = 30000;
 const CONCURRENT_LIMIT = 3;
 
-const NON_RECOVERABLE_ERRORS = ["Unsupported content type", "Response too large"];
+const NON_RECOVERABLE_ERRORS = [
+	"Unsupported content type",
+	"Response too large",
+	"PDF exceeds configured pdf.maxSizeMB limit",
+	"Gemini credential resolution failed",
+];
 const MIN_USEFUL_CONTENT = 500;
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
 
@@ -456,6 +461,7 @@ export async function extractContent(
 
 	if (signal?.aborted) return abortedResult(url);
 	if (!httpResult.error) return httpResult;
+	if (isConfigParseError(httpResult.error)) return httpResult;
 	if (NON_RECOVERABLE_ERRORS.some(prefix => httpResult.error!.startsWith(prefix))) return httpResult;
 
 	let firecrawlError: string | null = null;
@@ -563,6 +569,46 @@ function isLikelyJSRendered(html: string): boolean {
 	return textContent.length < 500 && scriptCount > 3;
 }
 
+export async function readPDFResponseBuffer(response: Response, maxSizeMB: number): Promise<ArrayBuffer> {
+	const maxBytes = maxSizeMB * 1024 * 1024;
+	const reader = response.body?.getReader();
+	if (!reader) {
+		const buffer = await response.arrayBuffer();
+		if (buffer.byteLength > maxBytes) throw pdfSizeLimitError(maxSizeMB);
+		return buffer;
+	}
+
+	const chunks: Uint8Array[] = [];
+	let totalBytes = 0;
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!value) continue;
+			totalBytes += value.byteLength;
+			if (totalBytes > maxBytes) {
+				await reader.cancel();
+				throw pdfSizeLimitError(maxSizeMB);
+			}
+			chunks.push(value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+
+	const combined = new Uint8Array(totalBytes);
+	let offset = 0;
+	for (const chunk of chunks) {
+		combined.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return combined.buffer;
+}
+
+function pdfSizeLimitError(maxSizeMB: number): Error {
+	return new Error(`PDF exceeds configured pdf.maxSizeMB limit (${maxSizeMB} MB)`);
+}
+
 async function extractViaHttp(
 	url: string,
 	signal?: AbortSignal,
@@ -617,24 +663,29 @@ async function extractViaHttp(
 		const contentLengthHeader = response.headers.get("content-length");
 		const contentType = response.headers.get("content-type") || "";
 		const isPDFContent = isPDF(url, contentType);
-		const maxResponseSize = isPDFContent ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
+		const pdfConfig = isPDFContent ? loadPDFConfig() : null;
+		const maxResponseSize = (pdfConfig?.maxSizeMB ?? 5) * 1024 * 1024;
 		if (contentLengthHeader) {
-			const contentLength = parseInt(contentLengthHeader, 10);
-			if (contentLength > maxResponseSize) {
+			const contentLength = Number.parseInt(contentLengthHeader, 10);
+			if (Number.isFinite(contentLength) && contentLength > maxResponseSize) {
 				activityMonitor.logComplete(activityId, response.status);
 				return {
 					url,
 					title: "",
 					content: "",
-					error: `Response too large (${Math.round(contentLength / 1024 / 1024)}MB)`,
+					error: pdfConfig
+						? pdfSizeLimitError(pdfConfig.maxSizeMB).message
+						: `Response too large (${Math.round(contentLength / 1024 / 1024)}MB)`,
 				};
 			}
 		}
 
-		if (isPDFContent) {
+		if (isPDFContent && pdfConfig) {
 			try {
-				const buffer = await response.arrayBuffer();
-				const result = await extractPDFToMarkdown(buffer, url);
+				const buffer = await readPDFResponseBuffer(response, pdfConfig.maxSizeMB);
+				clearTimeout(timeoutId);
+				if (signal?.aborted) return abortedResult(url);
+				const result = await extractPDFToMarkdown(buffer, url, { signal });
 				activityMonitor.logComplete(activityId, response.status);
 				return {
 					url,
@@ -645,6 +696,12 @@ async function extractViaHttp(
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				activityMonitor.logError(activityId, message);
+				if (message.startsWith("PDF exceeds configured pdf.maxSizeMB limit")) {
+					return { url, title: "", content: "", error: message };
+				}
+				if (err instanceof CredentialResolutionError || isConfigParseError(err)) {
+					return { url, title: "", content: "", error: message };
+				}
 				return { url, title: "", content: "", error: `PDF extraction failed: ${message}` };
 			}
 		}

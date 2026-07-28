@@ -175,6 +175,72 @@ export interface GeminiApiOptions {
 	timeoutMs?: number;
 }
 
+export interface GeminiGenerateContentResult {
+	text: string;
+	finishReason?: string;
+	blockReason?: string;
+}
+
+/**
+ * Send inline binary data to Gemini's generateContent endpoint.
+ * Callers validate completion semantics because acceptable finish reasons vary by use case.
+ */
+export async function queryGeminiApiWithInlineData(
+	prompt: string,
+	data: string,
+	mimeType: string,
+	options: GeminiApiOptions = {},
+): Promise<GeminiGenerateContentResult> {
+	const signal = withTimeout(options.signal, options.timeoutMs ?? 120000);
+	const apiKey = options.apiKey ?? await getApiKey(signal);
+	if (!apiKey && !isGatewayConfigured()) {
+		throw new Error(
+			"Gemini API not configured. Either:\n" +
+			`  1. Configure geminiApiKey in ${CONFIG_PATH} or set GEMINI_API_KEY\n` +
+			"  2. Set GOOGLE_GEMINI_BASE_URL + CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing"
+		);
+	}
+
+	const model = options.model ?? DEFAULT_MODEL;
+	const url = `${getVersionedApiBase()}/models/${model}:generateContent`;
+	const body = {
+		contents: [
+			{
+				role: "user",
+				parts: [
+					{ inlineData: { mimeType, data } },
+					{ text: prompt },
+				],
+			},
+		],
+	};
+
+	const res = await fetchGeminiApi(url, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+		signal,
+	}, apiKey);
+
+	if (!res.ok) {
+		const errorText = redactGeminiApiResponse(res, await res.text(), apiKey);
+		throw new Error(`Gemini API error ${res.status}: ${errorText.slice(0, 300)}`);
+	}
+
+	const response = (await res.json()) as GenerateContentResponse;
+	const candidate = response.candidates?.[0];
+	const text = candidate?.content?.parts
+		?.map((part) => part.text)
+		.filter((part): part is string => typeof part === "string" && part.length > 0)
+		.join("\n") ?? "";
+
+	return {
+		text,
+		...(candidate?.finishReason ? { finishReason: candidate.finishReason } : {}),
+		...(response.promptFeedback?.blockReason ? { blockReason: response.promptFeedback.blockReason } : {}),
+	};
+}
+
 export async function queryGeminiApiWithVideo(
 	prompt: string,
 	videoUri: string,
@@ -235,5 +301,9 @@ interface GenerateContentResponse {
 		content?: {
 			parts?: Array<{ text?: string }>;
 		};
+		finishReason?: string;
 	}>;
+	promptFeedback?: {
+		blockReason?: string;
+	};
 }

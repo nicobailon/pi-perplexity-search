@@ -27,6 +27,37 @@ test("extractPDFToMarkdown works on Node 22 without native Promise.try", () => {
   assert.match(child.stdout, /Hello PDF/);
 });
 
+test("extractPDFToMarkdown falls back to unpdf when Gemini output is truncated", () => {
+  const child = spawnSync(process.execPath, ["--input-type=module"], {
+    input: buildChildScript(extractorUrl, false, "truncate"),
+    encoding: "utf8",
+    maxBuffer: 2 * 1024 * 1024,
+  });
+
+  assert.equal(
+    child.status,
+    0,
+    "PDF Gemini fallback failed in a child process. stderr summary:\n" + errorSummary(child.stderr),
+  );
+  assert.match(child.stdout, /Hello PDF/);
+});
+
+test("extractPDFToMarkdown preserves caller cancellation without local fallback", () => {
+  const child = spawnSync(process.execPath, ["--input-type=module"], {
+    input: buildChildScript(extractorUrl, false, "abort"),
+    encoding: "utf8",
+    maxBuffer: 2 * 1024 * 1024,
+  });
+
+  assert.equal(
+    child.status,
+    0,
+    "PDF cancellation assertion failed in a child process. stderr summary:\n" + errorSummary(child.stderr),
+  );
+  assert.match(child.stdout, /Aborted/);
+  assert.doesNotMatch(child.stdout, /Hello PDF/);
+});
+
 test("extractPDFToMarkdown passes PDF.js errors-only verbosity", () => {
   const loaderDir = mkdtempSync(join(tmpdir(), "pi-web-access-pdf-loader-"));
   const loaderPath = join(loaderDir, "unpdf-loader.mjs");
@@ -86,7 +117,7 @@ function buildUnpdfLoader() {
   `;
 }
 
-function buildChildScript(moduleUrl, printOptions = false) {
+function buildChildScript(moduleUrl, printOptions = false, geminiMode = "none") {
   return `
     import { mkdtemp, readFile } from "node:fs/promises";
     import { tmpdir } from "node:os";
@@ -106,17 +137,55 @@ function buildChildScript(moduleUrl, printOptions = false) {
       throw new Error("Expected Promise.try to be unavailable before PDF extraction");
     }
 
+    const configDir = await mkdtemp(join(tmpdir(), "pi-web-access-pdf-config-"));
+    process.env.PI_CODING_AGENT_DIR = configDir;
+
+    ${geminiMode !== "none" ? `
+      process.env.GEMINI_API_KEY = "synthetic-gemini-key";
+      globalThis.fetch = async (_url, init) => {
+        if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        return new Response(JSON.stringify({
+          candidates: [{
+            finishReason: "MAX_TOKENS",
+            content: { parts: [{ text: "<!-- Page 1 -->\\nPartial" }] },
+          }],
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      };
+    ` : `
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.GOOGLE_GEMINI_BASE_URL;
+      delete process.env.CLOUDFLARE_API_KEY;
+    `}
+
     const { extractPDFToMarkdown } = await import(${JSON.stringify(moduleUrl)});
 
     const outputDir = await mkdtemp(join(tmpdir(), "pi-web-access-pdf-"));
-    const result = await extractPDFToMarkdown(
-      makePdf("Hello PDF"),
-      "https://example.test/hello.pdf",
-      { outputDir },
-    );
+    ${geminiMode === "abort" ? `
+      const controller = new AbortController();
+      controller.abort();
+      let preservedCancellation = false;
+      try {
+        await extractPDFToMarkdown(
+          makePdf("Hello PDF"),
+          "https://example.test/hello.pdf",
+          { outputDir, signal: controller.signal },
+        );
+      } catch (error) {
+        preservedCancellation = /abort/i.test(error instanceof Error ? error.message : String(error));
+        if (!preservedCancellation) throw error;
+      }
+      if (!preservedCancellation) throw new Error("Expected PDF extraction to preserve cancellation");
+      console.log("Aborted");
+    ` : `
+      const result = await extractPDFToMarkdown(
+        makePdf("Hello PDF"),
+        "https://example.test/hello.pdf",
+        { outputDir },
+      );
 
-    console.log(await readFile(result.outputPath, "utf8"));
-    ${printOptions ? "console.log(JSON.stringify(globalThis.__piWebAccessUnpdfOptions));" : ""}
+      console.log(await readFile(result.outputPath, "utf8"));
+      ${printOptions ? "console.log(JSON.stringify(globalThis.__piWebAccessUnpdfOptions));" : ""}
+    `}
 
     function makePdf(text) {
       const content = "BT /F1 24 Tf 72 720 Td (" + text + ") Tj ET";
