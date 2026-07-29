@@ -13,6 +13,7 @@ import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
 import { extractWithTinyFish, isTinyFishAvailable } from "./tinyfish.ts";
 import { extractWithFirecrawl, isFirecrawlAvailable } from "./firecrawl.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
+import { appendDeclaredWebLinks, discoverDeclaredWebLinks, type DeclaredWebLink } from "./declared-web-links.ts";
 import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
 import { formatSeconds, getWebSearchConfigPath } from "./utils.ts";
 
@@ -70,6 +71,8 @@ export interface ExtractedContent {
 	frames?: VideoFrame[];
 	duration?: number;
 }
+
+type HttpExtractedContent = ExtractedContent & { declaredLinks?: DeclaredWebLink[] };
 
 export interface ExtractOptions {
 	timeoutMs?: number;
@@ -452,7 +455,11 @@ export async function extractContent(
 
 	if (signal?.aborted) return abortedResult(url);
 
-	const httpResult = await extractViaHttp(url, signal, options);
+	const { declaredLinks = [], ...httpResult } = await extractViaHttp(url, signal, options);
+	const withDeclaredLinks = (result: ExtractedContent): ExtractedContent => ({
+		...result,
+		content: appendDeclaredWebLinks(result.content, declaredLinks),
+	});
 
 	if (signal?.aborted) return abortedResult(url);
 	if (!httpResult.error) return httpResult;
@@ -467,7 +474,7 @@ export async function extractContent(
 				...(options?.lookup ? { lookup: options.lookup } : {}),
 				ssrf,
 			});
-			if (firecrawlResult) return firecrawlResult;
+			if (firecrawlResult) return withDeclaredLinks(firecrawlResult);
 		}
 	} catch (err) {
 		if (isAbortError(err)) return abortedResult(url);
@@ -477,14 +484,14 @@ export async function extractContent(
 	if (signal?.aborted) return abortedResult(url);
 
 	const jinaResult = await extractWithJinaReader(url, signal, options?.lookup);
-	if (jinaResult) return jinaResult;
+	if (jinaResult) return withDeclaredLinks(jinaResult);
 	if (signal?.aborted) return abortedResult(url);
 
 	let tinyfishError: string | null = null;
 	try {
 		if (isTinyFishAvailable()) {
 			const tinyfishResult = await extractWithTinyFish(url, signal, options);
-			if (tinyfishResult) return tinyfishResult;
+			if (tinyfishResult) return withDeclaredLinks(tinyfishResult);
 		}
 	} catch (err) {
 		if (isAbortError(err)) return abortedResult(url);
@@ -499,7 +506,7 @@ export async function extractContent(
 	try {
 		if (isParallelAvailable()) {
 			const parallelResult = await extractWithParallel(url, signal, options);
-			if (parallelResult) return parallelResult;
+			if (parallelResult) return withDeclaredLinks(parallelResult);
 		}
 	} catch (err) {
 		if (isAbortError(err)) return abortedResult(url);
@@ -521,8 +528,9 @@ export async function extractContent(
 		}
 	}
 
-	if (geminiResult) return geminiResult;
+	if (geminiResult) return withDeclaredLinks(geminiResult);
 	if (signal?.aborted) return abortedResult(url);
+	if (declaredLinks.length > 0) return { ...httpResult, error: null };
 
 	const guidance = [
 		httpResult.error,
@@ -567,7 +575,7 @@ async function extractViaHttp(
 	url: string,
 	signal?: AbortSignal,
 	options?: ExtractOptions,
-): Promise<ExtractedContent> {
+): Promise<HttpExtractedContent> {
 	const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const activityId = activityMonitor.logStart({ type: "fetch", url });
 
@@ -673,6 +681,12 @@ async function extractViaHttp(
 		}
 
 		const { document } = parseHTML(text);
+		const documentTitle = document.title?.trim() ?? "";
+		const declaredLinks = discoverDeclaredWebLinks(
+			document as unknown as Document,
+			response.headers.get("link"),
+			response.url || url,
+		);
 		const reader = new Readability(document as unknown as Document);
 		const article = reader.parse();
 
@@ -680,12 +694,16 @@ async function extractViaHttp(
 			const rscResult = extractRSCContent(text);
 			if (rscResult) {
 				activityMonitor.logComplete(activityId, response.status);
-				return { url, title: rscResult.title, content: rscResult.content, error: null };
+				return {
+					url,
+					title: rscResult.title,
+					content: appendDeclaredWebLinks(rscResult.content, declaredLinks),
+					error: null,
+					declaredLinks,
+				};
 			}
 
 			activityMonitor.logComplete(activityId, response.status);
-
-			// Provide more specific error message
 			const jsRendered = isLikelyJSRendered(text);
 			const errorMsg = jsRendered
 				? "Page appears to be JavaScript-rendered (content loads dynamically)"
@@ -693,9 +711,10 @@ async function extractViaHttp(
 
 			return {
 				url,
-				title: "",
-				content: "",
+				title: documentTitle,
+				content: appendDeclaredWebLinks("", declaredLinks),
 				error: errorMsg,
+				declaredLinks,
 			};
 		}
 
@@ -708,15 +727,22 @@ async function extractViaHttp(
 		if (markdown.length < MIN_USEFUL_CONTENT) {
 			return {
 				url,
-				title: article.title || "",
-				content: markdown,
+				title: article.title || documentTitle,
+				content: appendDeclaredWebLinks(markdown, declaredLinks),
 				error: isLikelyJSRendered(text)
 					? "Page appears to be JavaScript-rendered (content loads dynamically)"
 					: "Extracted content appears incomplete",
+				declaredLinks,
 			};
 		}
 
-		return { url, title: article.title || "", content: markdown, error: null };
+		return {
+			url,
+			title: article.title || documentTitle,
+			content: appendDeclaredWebLinks(markdown, declaredLinks),
+			error: null,
+			declaredLinks,
+		};
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		if (message.toLowerCase().includes("abort")) {
