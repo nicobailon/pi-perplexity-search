@@ -1,4 +1,5 @@
-import { homedir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 
 export function getWebSearchConfigDir(): string {
@@ -9,6 +10,49 @@ export function getWebSearchConfigDir(): string {
 
 export function getWebSearchConfigPath(): string {
 	return join(getWebSearchConfigDir(), "web-search.json");
+}
+
+export interface CuratorNetworkConfig {
+	/** Whether remote access was opted into via curatorRemote. */
+	enabled: boolean;
+	host: string;
+	bind: string;
+}
+
+const LOCAL_CURATOR_NETWORK_DEFAULTS: CuratorNetworkConfig = { enabled: false, host: "localhost", bind: "127.0.0.1" };
+
+function trimmedString(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Resolves the curator server bind address and URL host from `curatorRemote`. */
+export function resolveCuratorNetworkConfig(): CuratorNetworkConfig {
+	const configPath = getWebSearchConfigPath();
+	if (!existsSync(configPath)) return LOCAL_CURATOR_NETWORK_DEFAULTS;
+
+	let raw: unknown;
+	try {
+		raw = JSON.parse(readFileSync(configPath, "utf-8"));
+	} catch {
+		return LOCAL_CURATOR_NETWORK_DEFAULTS;
+	}
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return LOCAL_CURATOR_NETWORK_DEFAULTS;
+
+	const curatorRemote = (raw as Record<string, unknown>).curatorRemote;
+	if (curatorRemote === true) return { enabled: true, host: hostname(), bind: "0.0.0.0" };
+
+	if (curatorRemote && typeof curatorRemote === "object" && !Array.isArray(curatorRemote)) {
+		const obj = curatorRemote as Record<string, unknown>;
+		return {
+			enabled: true,
+			host: trimmedString(obj.host) ?? hostname(),
+			bind: trimmedString(obj.bind) ?? "0.0.0.0",
+		};
+	}
+
+	return LOCAL_CURATOR_NETWORK_DEFAULTS;
 }
 
 export function formatSeconds(s: number): string {

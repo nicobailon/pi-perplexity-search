@@ -304,6 +304,11 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
   "summaryModel": "anthropic/claude-haiku-4-5",
   "workflow": "summary-review",
   "curatorTimeoutSeconds": 20,
+  "curatorRemote": {
+    "host": "my-box.tailnet.ts.net",
+    "bind": "100.101.102.103"
+  },
+  "autoOpenBrowser": true,
   "githubClone": {
     "enabled": true,
     "maxRepoSizeMB": 350,
@@ -404,6 +409,57 @@ Two behaviours worth knowing, both consequences of the API surface:
 - **Domain filters are applied locally.** SERPdive has no include/exclude domain parameter, so `domainFilter` is applied to the results that come back. It can narrow a page of results, not ask the engine for more from a given domain.
 
 `numResults` maps to `max_results`, which the API treats as a cap between 1 and 10 — never a minimum. Values above 10 are clamped; the engine returns what it judges relevant, which is often fewer.
+
+### Remote curator access
+
+By default the curator HTTP server binds to `127.0.0.1` and hands out a `http://localhost:<port>/?session=<token>` URL, so it is reachable only from the machine running Pi. That is the right default and nothing below changes it unless you opt in.
+
+Opt in when Pi runs somewhere other than where your browser is — a dev box you SSH into, a container, a remote workstation on a Tailscale/WireGuard network:
+
+```json
+{
+  "curatorRemote": true
+}
+```
+
+`true` derives both values: the URL host becomes `os.hostname()` and the server binds `0.0.0.0`. Either can be overridden, and you should usually override `bind`:
+
+```json
+{
+  "curatorRemote": {
+    "host": "my-box.tailnet.ts.net",
+    "bind": "100.101.102.103"
+  }
+}
+```
+
+| Value | URL host | Bind address |
+| --- | --- | --- |
+| omitted or `false` | `localhost` | `127.0.0.1` |
+| `true` | `os.hostname()` | `0.0.0.0` |
+| `{ "host": "h" }` | `h` | `0.0.0.0` |
+| `{ "bind": "b" }` | `os.hostname()` | `b` |
+| `{ "host": "h", "bind": "b" }` | `h` | `b` |
+
+Anything else — a string, `null`, an array — is treated as not configured and stays local.
+
+`host` only changes the URL that gets printed; `bind` is what actually determines who can reach the server. Set them to a matching pair — a `host` that does not resolve to the interface you bound produces a link that looks right and does not load.
+
+**Security.** Enabling this exposes the curator beyond the local machine, and `bind: "0.0.0.0"` exposes it on every interface, including untrusted networks. The only access control is the unguessable session token in the URL, carried over plain HTTP with no TLS — so the token and everything you curate are readable by anyone able to observe that traffic. Anyone who reaches the port with the token can run searches against your configured providers (spending your API credits) and edit the summary that gets returned into the agent's context. Prefer binding to one private-network interface, as in the example above, over `0.0.0.0`, and treat the curator URL as a secret. The server is short-lived — it exists only for the duration of a curation session — but it is unauthenticated apart from that token.
+
+Remote curator sessions print the URL instead of trying to open a browser by default. Turning remote access on also raises the default curator idle timeout from 20 to 60 seconds, giving you time to notice and click that link; set `curatorTimeoutSeconds` explicitly to override. If you do want Pi to launch a browser on the remote host anyway, set `autoOpenBrowser: true` explicitly.
+
+#### Disabling browser auto-open
+
+`autoOpenBrowser` is also useful on its own for local sessions:
+
+```json
+{
+  "autoOpenBrowser": false
+}
+```
+
+When `false`, the extension never tries to open a Glimpse window or a browser and always prints the URL for you to open manually. For local-only sessions it defaults to `true`; remote curator sessions print the URL unless you set `autoOpenBrowser: true` explicitly. This is worth setting locally when you would rather paste the link into a specific browser than have one launched for you. It changes nothing about where the server binds; that is `curatorRemote`'s job alone.
 
 ### Shortcuts
 

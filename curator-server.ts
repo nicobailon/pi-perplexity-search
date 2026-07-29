@@ -1,6 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { generateCuratorPage } from "./curator-page.ts";
 import type { SummaryMeta } from "./summary-review.ts";
+import { resolveCuratorNetworkConfig } from "./utils.ts";
 
 const STALE_THRESHOLD_MS = 30000;
 const WATCHDOG_INTERVAL_MS = 1000;
@@ -629,15 +630,17 @@ export function startCuratorServer(
 			reject(new Error(`Curator server failed to start: ${err.message}`));
 		};
 
+		const networkConfig = resolveCuratorNetworkConfig();
+
 		server.once("error", onError);
-		server.listen(0, "127.0.0.1", () => {
+		server.listen(0, networkConfig.bind, () => {
 			server.off("error", onError);
 			const addr = server.address();
 			if (!addr || typeof addr === "string") {
 				reject(new Error("Curator server: invalid address"));
 				return;
 			}
-			const url = `http://localhost:${addr.port}/?session=${sessionToken}`;
+			const url = `http://${networkConfig.host}:${addr.port}/?session=${sessionToken}`;
 
 			watchdog = setInterval(() => {
 				if (completed) return;

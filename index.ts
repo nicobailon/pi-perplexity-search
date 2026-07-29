@@ -7,7 +7,7 @@ import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { clearCloneCache } from "./github-extract.ts";
 import { getConfiguredSearchRouting, search, type AttributedSearchResponse, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
 import type { SearchResult } from "./perplexity.ts";
-import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath } from "./utils.ts";
+import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath, resolveCuratorNetworkConfig } from "./utils.ts";
 import {
 	clearResults,
 	deleteResult,
@@ -100,6 +100,8 @@ interface WebSearchConfig {
 	searchProvider?: string;
 	workflow?: string;
 	curatorTimeoutSeconds?: unknown;
+	autoOpenBrowser?: unknown;
+	curatorRemote?: unknown;
 	summaryModel?: string;
 	webSearch?: {
 		enabled?: boolean;
@@ -190,6 +192,7 @@ const DEFAULT_TOOL_NAMES: ToolNames = {
 const TOOL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const DEFAULT_SHORTCUTS = { curate: "ctrl+shift+s", activity: "ctrl+shift+w" } satisfies Record<string, KeyId>;
 const DEFAULT_CURATOR_TIMEOUT_SECONDS = 20;
+const DEFAULT_REMOTE_CURATOR_TIMEOUT_SECONDS = 60;
 const MAX_CURATOR_TIMEOUT_SECONDS = 600;
 
 function resolveToolNames(config: WebSearchConfig): ToolNames {
@@ -278,7 +281,16 @@ function normalizeQueryList(queryList: unknown[]): string[] {
 
 function getCuratorTimeoutSeconds(): number {
 	const source = loadConfig();
-	return normalizeCuratorTimeoutSeconds(source.curatorTimeoutSeconds) ?? DEFAULT_CURATOR_TIMEOUT_SECONDS;
+	const explicit = normalizeCuratorTimeoutSeconds(source.curatorTimeoutSeconds);
+	if (explicit !== undefined) return explicit;
+	// Remote users must notice and click a printed link, so allow more idle time.
+	return resolveCuratorNetworkConfig().enabled ? DEFAULT_REMOTE_CURATOR_TIMEOUT_SECONDS : DEFAULT_CURATOR_TIMEOUT_SECONDS;
+}
+
+function shouldAutoOpenCuratorBrowser(config: WebSearchConfig): boolean {
+	if (config.autoOpenBrowser === false) return false;
+	if (resolveCuratorNetworkConfig().enabled && config.autoOpenBrowser !== true) return false;
+	return true;
 }
 
 async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderAvailability> {
@@ -1348,6 +1360,11 @@ export default function (pi: ExtensionAPI) {
 					shortcut: curateKey,
 				},
 			});
+
+			if (!shouldAutoOpenCuratorBrowser(loadConfig())) {
+				sendCuratorFallbackUpdate("Search curator is running. Open the curator URL manually.");
+				return;
+			}
 
 			const open = platform() === "darwin" ? await getGlimpseOpen() : null;
 			if (open) {
@@ -2761,38 +2778,42 @@ export default function (pi: ExtensionAPI) {
 
 				commandHandle = handle;
 				activeCurators.set(commandCallId, handle);
-				const open = platform() === "darwin" ? await getGlimpseOpen() : null;
 				let browserOpenError: string | null = null;
-				if (open) {
-					try {
-						const win = openInGlimpse(open, handle.url, "Search Curator");
-						glimpseWins.set(commandCallId, win);
-						win.on("closed", () => {
-							if (glimpseWins.get(commandCallId) === win) {
-								glimpseWins.delete(commandCallId);
-								closeCurator(commandCallId);
+				if (!shouldAutoOpenCuratorBrowser(loadConfig())) {
+					ctx.ui.notify(`Search curator is running. Open manually: ${handle.url}`, "info");
+				} else {
+					const open = platform() === "darwin" ? await getGlimpseOpen() : null;
+					if (open) {
+						try {
+							const win = openInGlimpse(open, handle.url, "Search Curator");
+							glimpseWins.set(commandCallId, win);
+							win.on("closed", () => {
+								if (glimpseWins.get(commandCallId) === win) {
+									glimpseWins.delete(commandCallId);
+									closeCurator(commandCallId);
+								}
+							});
+						} catch (err) {
+							const message = err instanceof Error ? err.message : String(err);
+							console.error(`Failed to open Glimpse curator window: ${message}`);
+							glimpseWins.delete(commandCallId);
+							try {
+								await openInBrowser(pi, handle.url);
+							} catch (browserErr) {
+								browserOpenError = browserErr instanceof Error ? browserErr.message : String(browserErr);
 							}
-						});
-					} catch (err) {
-						const message = err instanceof Error ? err.message : String(err);
-						console.error(`Failed to open Glimpse curator window: ${message}`);
-						glimpseWins.delete(commandCallId);
+						}
+					} else {
 						try {
 							await openInBrowser(pi, handle.url);
 						} catch (browserErr) {
 							browserOpenError = browserErr instanceof Error ? browserErr.message : String(browserErr);
 						}
 					}
-				} else {
-					try {
-						await openInBrowser(pi, handle.url);
-					} catch (browserErr) {
-						browserOpenError = browserErr instanceof Error ? browserErr.message : String(browserErr);
+					if (browserOpenError) {
+						console.error(`Failed to open curator UI: ${browserOpenError}`);
+						ctx.ui.notify(`Search curator is running, but the browser did not open automatically. Open manually: ${handle.url}`, "info");
 					}
-				}
-				if (browserOpenError) {
-					console.error(`Failed to open curator UI: ${browserOpenError}`);
-					ctx.ui.notify(`Search curator is running, but the browser did not open automatically. Open manually: ${handle.url}`, "info");
 				}
 
 				if (queries.length > 0) {
