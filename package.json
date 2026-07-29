@@ -1,7 +1,7 @@
 {
   "name": "pi-web-access",
   "version": "0.15.0",
-  "description": "Web search, URL fetching, GitHub repo cloning, PDF extraction, YouTube video understanding, and local video analysis for Pi coding agent. Supports OpenAI, Brave, Parallel, TinyFish, Tavily, SERPdive, AnySearch, SearXNG, Firecrawl extraction, Exa, Perplexity, and Gemini.",
+  "description": "Web search, URL fetching, GitHub repo cloning, PDF extraction, YouTube video understanding, and local video analysis for Pi coding agent. Supports OpenAI, Brave, Parallel, TinyFish, Search1API, Tavily, SERPdive, AnySearch, SearXNG, Firecrawl extraction, Exa, Perplexity, and Gemini.",
   "type": "module",
   "scripts": {
     "test": "node --test",
@@ -15,6 +15,7 @@
     "extension",
     "web-search",
     "tinyfish",
+    "search1api",
     "perplexity",
     "fetch",
     "scraping"

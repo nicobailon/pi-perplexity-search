@@ -11,6 +11,7 @@ import { CredentialResolutionError } from "./credential-source.ts";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
 import { extractWithTinyFish, isTinyFishAvailable } from "./tinyfish.ts";
+import { extractWithSearch1API, isSearch1APIAvailable } from "./search1api.ts";
 import { extractWithFirecrawl, isFirecrawlAvailable } from "./firecrawl.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { appendDeclaredWebLinks, discoverDeclaredWebLinks, type DeclaredWebLink } from "./declared-web-links.ts";
@@ -502,6 +503,21 @@ export async function extractContent(
 	}
 	if (signal?.aborted) return abortedResult(url);
 
+	let search1apiError: string | null = null;
+	try {
+		if (isSearch1APIAvailable()) {
+			const search1apiResult = await extractWithSearch1API(url, signal, options);
+			if (search1apiResult) return withDeclaredLinks(search1apiResult);
+		}
+	} catch (err) {
+		if (isAbortError(err)) return abortedResult(url);
+		search1apiError = errorMessage(err);
+		if (isConfigParseError(err)) {
+			return { ...httpResult, error: search1apiError };
+		}
+	}
+	if (signal?.aborted) return abortedResult(url);
+
 	let parallelError: string | null = null;
 	try {
 		if (isParallelAvailable()) {
@@ -536,6 +552,7 @@ export async function extractContent(
 		httpResult.error,
 		...(firecrawlError ? [`Firecrawl fallback failed: ${firecrawlError}`] : []),
 		...(tinyfishError ? [`TinyFish fallback failed: ${tinyfishError}`] : []),
+		...(search1apiError ? [`Search1API fallback failed: ${search1apiError}`] : []),
 		...(parallelError ? [`Parallel fallback failed: ${parallelError}`] : []),
 		"",
 		"Fallback options:",

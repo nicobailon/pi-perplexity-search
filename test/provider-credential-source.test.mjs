@@ -34,6 +34,7 @@ function runChild(script, env) {
 		"OPENAI_API_KEY",
 		"PARALLEL_API_KEY",
 		"TINYFISH_API_KEY",
+		"SEARCH1API_KEY",
 		"PERPLEXITY_API_KEY",
 		"TAVILY_API_KEY",
 	]) delete childEnv[key];

@@ -42,6 +42,7 @@ import { isBraveAvailable } from "./brave.ts";
 import { isOpenAISearchAvailable } from "./openai-search.ts";
 import { isParallelAvailable } from "./parallel.ts";
 import { isTinyFishAvailable } from "./tinyfish.ts";
+import { isSearch1APIAvailable } from "./search1api.ts";
 import { isTavilyAvailable } from "./tavily.ts";
 import { isSerpdiveAvailable } from "./serpdive.ts";
 import { isSearXNGAvailable } from "./searxng.ts";
@@ -125,6 +126,7 @@ interface ProviderAvailability {
 	brave: boolean;
 	parallel: boolean;
 	tinyfish: boolean;
+	search1api: boolean;
 	tavily: boolean;
 	serpdive: boolean;
 	searxng: boolean;
@@ -317,6 +319,7 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		brave: isBraveAvailable(),
 		parallel: isParallelAvailable(),
 		tinyfish: isTinyFishAvailable(),
+		search1api: isSearch1APIAvailable(),
 		tavily: isTavilyAvailable(),
 		serpdive: isSerpdiveAvailable(),
 		searxng: isSearXNGAvailable(),
@@ -362,6 +365,7 @@ function firstAvailableProvider(available: ProviderAvailability, preferOpenAI: b
 	if (available.brave) return "brave";
 	if (available.parallel) return "parallel";
 	if (available.tinyfish) return "tinyfish";
+	if (available.search1api) return "search1api";
 	if (available.tavily) return "tavily";
 	if (available.serpdive) return "serpdive";
 	if (available.perplexity) return "perplexity";
@@ -401,6 +405,9 @@ function resolveProvider(
 	}
 	if (provider === "tinyfish" && !available.tinyfish) {
 		return firstAvailableProvider(available, preferOpenAI, "tinyfish");
+	}
+	if (provider === "search1api" && !available.search1api) {
+		return firstAvailableProvider(available, preferOpenAI, "search1api");
 	}
 	if (provider === "tavily" && !available.tavily) {
 		return firstAvailableProvider(available, preferOpenAI, "tavily");

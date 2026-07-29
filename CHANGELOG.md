@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added Search1API as a first-class search and extraction provider with `search1apiApiKey` / `SEARCH1API_KEY` credentials, native domain and recency filters, opt-in Deep Search inline content, provider-array/all-provider routing, curator selection, and a hosted `fetch_content` fallback through the Crawl API. Thanks `@fatwang2` for PR #176.
+
 ### Fixed
 - Accept explicit provider arrays for `web_search` and `source_check`, running only the selected providers concurrently while preserving `auto`, `all`, and sequential routing behavior. Thanks `@XWIlluDelu` for PR #179.
 - Added `curatorRemote` and `autoOpenBrowser` controls for remote-accessible curator sessions, defaulting remote mode to a printed manual URL unless browser auto-open is explicitly requested. Thanks `@tylerdavis` for PR #178.
