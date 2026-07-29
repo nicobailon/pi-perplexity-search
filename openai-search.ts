@@ -10,14 +10,32 @@ const CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 const CONFIG_PATH = getWebSearchConfigPath();
 const SEARCH_TIMEOUT_MS = 60_000;
 
-const AUTH_MODEL_CANDIDATES = [
-	{ provider: "openai-codex", models: ["gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2", "gpt-5.2-codex"] },
-	{ provider: "openai", models: ["gpt-5.4", "gpt-5.2", "gpt-4.1-mini", "gpt-4o"] },
-] as const;
+// The selected model runs the server-side web_search call and writes the cited summary.
+// Prefer the newest mid-tier ("terra") model, then the newest bare mainline id; price
+// tiers ("pro"/"ultra" id segments) are excluded, and the numeric-aware sort keeps
+// e.g. gpt-5.10 ahead of gpt-5.9.
+const EXCLUDED_MODEL_SEGMENTS = new Set(["pro", "ultra"]);
+const MODEL_PREFERENCE = [
+	(id: string) => id.includes("terra"),
+	(id: string) => /^gpt-\d+(\.\d+)?$/.test(id),
+];
+const SEARCH_PROVIDERS = ["openai-codex", "openai"] as const;
+
+function pickSearchModel<T extends { id: string }>(models: readonly T[]): T | undefined {
+	const candidates = models
+		.filter((model) => !model.id.split("-").some((segment) => EXCLUDED_MODEL_SEGMENTS.has(segment)))
+		.sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true }));
+	for (const prefers of MODEL_PREFERENCE) {
+		const preferred = candidates.find((model) => prefers(model.id));
+		if (preferred) return preferred;
+	}
+	return candidates[0];
+}
 
 interface WebSearchConfig {
 	openaiApiKey?: unknown;
 	openaiResponsesUrl?: unknown;
+	openaiSearchModel?: unknown;
 }
 
 interface OpenAIAuth {
@@ -129,24 +147,36 @@ function resolveConfiguredResponsesUrl(value: unknown): string {
 	return url.toString();
 }
 
-async function resolvePiAuth(ctx: ExtensionContext, responsesUrl: string): Promise<OpenAIAuth | undefined> {
-	for (const candidate of AUTH_MODEL_CANDIDATES) {
-		for (const modelId of candidate.models) {
-			try {
-				const model = ctx.modelRegistry.find(candidate.provider, modelId);
-				if (!model) continue;
-				const resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-				if (resolved.ok && resolved.apiKey) {
-					return {
-						provider: candidate.provider,
-						apiKey: resolved.apiKey,
-						model: modelId,
-						headers: resolved.headers ?? {},
-						responsesUrl,
-					};
-				}
-			} catch {
+function resolveConfiguredSearchModel(value: unknown): string | undefined {
+	if (value == null) return undefined;
+	if (typeof value !== "string" || value.trim().length === 0) {
+		throw new Error(`openaiSearchModel in ${CONFIG_PATH} must be a non-empty string`);
+	}
+	return value.trim();
+}
+
+async function resolvePiAuth(ctx: ExtensionContext, responsesUrl: string, modelOverride?: string): Promise<OpenAIAuth | undefined> {
+	let models: ReturnType<typeof ctx.modelRegistry.getAll>;
+	try {
+		models = ctx.modelRegistry.getAll();
+	} catch {
+		return undefined;
+	}
+	for (const provider of SEARCH_PROVIDERS) {
+		const preferred = pickSearchModel(models.filter((model) => model.provider === provider));
+		if (!preferred) continue;
+		try {
+			const resolved = await ctx.modelRegistry.getApiKeyAndHeaders(preferred);
+			if (resolved.ok && resolved.apiKey) {
+				return {
+					provider,
+					apiKey: resolved.apiKey,
+					model: modelOverride ?? preferred.id,
+					headers: resolved.headers ?? {},
+					responsesUrl,
+				};
 			}
+		} catch {
 		}
 	}
 	return undefined;
@@ -155,8 +185,9 @@ async function resolvePiAuth(ctx: ExtensionContext, responsesUrl: string): Promi
 export async function resolveOpenAIAuth(ctx?: ExtensionContext, signal?: AbortSignal): Promise<OpenAIAuth | undefined> {
 	const config = loadConfig();
 	const responsesUrl = resolveConfiguredResponsesUrl(config.openaiResponsesUrl);
+	const modelOverride = resolveConfiguredSearchModel(config.openaiSearchModel);
 	if (ctx) {
-		const auth = await resolvePiAuth(ctx, responsesUrl);
+		const auth = await resolvePiAuth(ctx, responsesUrl, modelOverride);
 		if (auth) return auth;
 	}
 
@@ -173,7 +204,7 @@ export async function resolveOpenAIAuth(ctx?: ExtensionContext, signal?: AbortSi
 		signal,
 	});
 	return apiKey
-		? { provider: "openai", apiKey, model: "gpt-5.4", headers: {}, responsesUrl }
+		? { provider: "openai", apiKey, model: modelOverride ?? "gpt-5.6-terra", headers: {}, responsesUrl }
 		: undefined;
 }
 

@@ -579,6 +579,78 @@ test("OpenAI search uses configured Responses endpoint", async () => {
 	assert.equal(output.answer, "gateway answer");
 });
 
+test("OpenAI search falls back to API key when model registry cannot enumerate", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-openai-partial-registry-"));
+	const child = runChild(`
+		let capturedBody = null;
+		globalThis.fetch = async (url, init) => {
+			capturedBody = JSON.parse(init.body);
+			return new Response(JSON.stringify({
+				output: [{ type: "message", content: [{ type: "output_text", text: "fallback answer" }] }],
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+
+		const { searchWithOpenAI } = await import(${JSON.stringify(openaiModuleUrl)});
+		const result = await searchWithOpenAI("fallback docs", { numResults: 1 }, { modelRegistry: {} });
+		console.log(JSON.stringify({ answer: result.answer, model: capturedBody.model }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		OPENAI_API_KEY: "sk-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.answer, "fallback answer");
+	assert.equal(output.model, "gpt-5.6-terra");
+});
+
+test("OpenAI search uses configured model with selected registry auth", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-openai-model-"));
+	await writeFile(join(home, "web-search.json"), JSON.stringify({
+		openaiSearchModel: "gateway-search-model",
+	}) + "\n");
+	const child = runChild(`
+		let capturedBody = null;
+		let selectedModel = null;
+		globalThis.fetch = async (url, init) => {
+			capturedBody = JSON.parse(init.body);
+			return new Response(JSON.stringify({
+				output: [{ type: "message", content: [{ type: "output_text", text: "registry answer" }] }],
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+
+		const models = [
+			{ provider: "openai", id: "gpt-5.9" },
+			{ provider: "openai", id: "gpt-5.10-pro" },
+			{ provider: "openai", id: "gpt-5.10" },
+		];
+		const ctx = {
+			modelRegistry: {
+				getAll: () => models,
+				getApiKeyAndHeaders: async (model) => {
+					selectedModel = model.id;
+					return { ok: true, apiKey: "registry-key", headers: { "X-Registry": "yes" } };
+				},
+			},
+		};
+
+		const { searchWithOpenAI } = await import(${JSON.stringify(openaiModuleUrl)});
+		const result = await searchWithOpenAI("registry docs", { numResults: 1 }, ctx);
+		console.log(JSON.stringify({ answer: result.answer, requestModel: capturedBody.model, selectedModel }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.answer, "registry answer");
+	assert.equal(output.requestModel, "gateway-search-model");
+	assert.equal(output.selectedModel, "gpt-5.10");
+});
+
 test("Gemini API search uses its search-only default model", async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-default-"));
 	const child = runChild(`
