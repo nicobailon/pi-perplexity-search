@@ -63,10 +63,24 @@ function normalizePositiveNumber(value: unknown, fallback: number): number {
 	return value > 0 ? value : fallback;
 }
 
+function expandPath(value: string): string {
+	let expanded = value;
+	// Expand ~ at the start of the path
+	if (expanded.startsWith("~/") || expanded === "~") {
+		expanded = expanded.replace(/^~/, process.env.HOME || process.env.USERPROFILE || "");
+	}
+	// Expand environment variables like $HOME, $USER, etc.
+	expanded = expanded.replace(/\$([A-Z_][A-Z0-9_]*)/gi, (match, varName) => {
+		return process.env[varName] ?? match;
+	});
+	return expanded;
+}
+
 function normalizeClonePath(value: unknown, fallback: string): string {
 	if (typeof value !== "string") return fallback;
 	const normalized = value.trim();
-	return normalized.length > 0 ? normalized : fallback;
+	if (normalized.length === 0) return fallback;
+	return expandPath(normalized);
 }
 
 function loadGitHubConfig(): GitHubCloneConfig {
