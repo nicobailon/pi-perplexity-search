@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Write extracted PDF markdown to a temporary `pi-web-pdf` directory by default instead of `~/Downloads`, while preserving explicit output directories. Thanks `@ahalekelly` for PR #183.
+
 ## [0.15.0] - 2026-07-28
 
 ### Added
