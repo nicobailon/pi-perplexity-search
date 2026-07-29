@@ -116,6 +116,95 @@ test('provider "all" starts every eligible provider together, excludes AnySearch
 	assert.doesNotMatch(output.result.answer, /AnySearch/);
 });
 
+test('provider array searches only the selected providers concurrently and preserves their order', async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-selected-"));
+	const child = runChild(`
+		const started = [];
+		let releaseGate;
+		const gate = new Promise((resolve) => { releaseGate = resolve; });
+
+		async function waitForPeer(provider) {
+			started.push(provider);
+			if (started.length === 2) releaseGate();
+			await gate;
+		}
+
+		globalThis.fetch = async (url) => {
+			const target = String(url);
+			if (target === "https://mcp.exa.ai/mcp") {
+				await waitForPeer("exa");
+				return new Response(JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					result: { content: [{ type: "text", text: "Title: Exa result\\nURL: https://example.com/exa\\nText: Exa answer\\n---" }] },
+				}), { status: 200 });
+			}
+			if (target.startsWith("https://api.search.brave.com/")) {
+				await waitForPeer("brave");
+				return new Response(JSON.stringify({
+					web: { results: [{ title: "Brave result", url: "https://example.com/brave", description: "Brave answer" }] },
+				}), { status: 200 });
+			}
+			if (target.startsWith("https://api.search.tinyfish.ai")) {
+				throw new Error("Unselected TinyFish provider must not run");
+			}
+			throw new Error("Unexpected fetch " + target);
+		};
+
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("selected", { provider: ["brave", "exa"] });
+		console.log(JSON.stringify({ started, result }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		BRAVE_API_KEY: "brave-test-key",
+		TINYFISH_API_KEY: "tinyfish-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr || child.error?.message);
+	const output = JSON.parse(child.stdout.trim());
+	assert.deepEqual([...output.started].sort(), ["brave", "exa"]);
+	assert.deepEqual(output.result.providerResponses.map((result) => result.provider), ["brave", "exa"]);
+	assert.deepEqual(output.result.results.map((result) => result.url), [
+		"https://example.com/brave",
+		"https://example.com/exa",
+	]);
+});
+
+test('provider array reports an unavailable selection without discarding successful providers', async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-selected-unavailable-"));
+	const child = runChild(`
+		globalThis.fetch = async (url) => {
+			const target = String(url);
+			if (target === "https://mcp.exa.ai/mcp") {
+				return new Response(JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					result: { content: [{ type: "text", text: "Title: Exa result\\nURL: https://example.com/exa\\nText: Exa answer\\n---" }] },
+				}), { status: 200 });
+			}
+			throw new Error("Unexpected fetch " + target);
+		};
+
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("partial selection", { provider: ["brave", "exa"] });
+		console.log(JSON.stringify(result));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr || child.error?.message);
+	const output = JSON.parse(child.stdout.trim());
+	assert.deepEqual(output.providerResponses.map((result) => result.provider), ["exa"]);
+	assert.equal(output.providerErrors.length, 1);
+	assert.equal(output.providerErrors[0].provider, "brave");
+	assert.match(output.providerErrors[0].error, /Brave Search API key not found/);
+	assert.match(output.answer, /\*\*Brave:\*\* Brave Search API key not found/);
+});
+
 test('provider "all" uses Gemini API without falling back to Gemini Web', async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-all-gemini-api-"));
 	const child = runChild(`
@@ -202,6 +291,14 @@ test('provider "all" keeps successful providers when another available provider 
 	assert.equal(output.results[0].url, "https://example.com/exa");
 	assert.match(output.answer, /## Provider errors/);
 	assert.match(output.answer, /\*\*Brave:\*\* Brave Search API error 503/);
+});
+
+test('provider arrays reject empty, duplicate, and aggregate entries', async () => {
+	const { normalizeSearchProviderSelection } = await import(searchModuleUrl);
+	assert.deepEqual(normalizeSearchProviderSelection([" Brave ", "EXA"]), ["brave", "exa"]);
+	assert.throws(() => normalizeSearchProviderSelection([]), /must be a non-empty array/);
+	assert.throws(() => normalizeSearchProviderSelection(["exa", "exa"]), /must not contain duplicates: exa/);
+	assert.throws(() => normalizeSearchProviderSelection(["all"]), /contains an invalid provider: all/);
 });
 
 test('"all" is a Curator provider but remains invalid inside sequential searchRouting', async () => {

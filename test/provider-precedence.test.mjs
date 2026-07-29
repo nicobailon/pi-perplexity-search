@@ -74,9 +74,29 @@ test("configured provider is used when tool omits provider", async () => {
 	assert.deepEqual(calls, ["https://api.perplexity.ai/chat/completions"]);
 });
 
+test("configured provider array is used when the tool omits provider", async () => {
+	const calls = runTool(await createConfig({
+		provider: ["tavily", "perplexity"],
+		perplexityApiKey: "perplexity-test-key",
+		tavilyApiKey: "tavily-test-key",
+	}));
+	assert.deepEqual(calls.sort(), [
+		"https://api.perplexity.ai/chat/completions",
+		"https://api.tavily.com/search",
+	]);
+});
+
 test("explicit named provider overrides configured provider", async () => {
 	const calls = runTool(await createConfig(), "tavily");
 	assert.deepEqual(calls, ["https://api.tavily.com/search"]);
+});
+
+test("explicit provider array overrides configured provider and runs only the selected providers", async () => {
+	const calls = runTool(await createConfig(), ["tavily", "perplexity"]);
+	assert.deepEqual(calls.sort(), [
+		"https://api.perplexity.ai/chat/completions",
+		"https://api.tavily.com/search",
+	]);
 });
 
 test("explicit auto uses configured provider", async () => {
