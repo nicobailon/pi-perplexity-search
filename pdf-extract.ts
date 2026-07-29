@@ -7,7 +7,7 @@
 
 import { writeFile, mkdir } from "node:fs/promises";
 import { join, basename } from "node:path";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 
 export interface PDFExtractResult {
   title: string;
@@ -23,7 +23,7 @@ export interface PDFExtractOptions {
 }
 
 const DEFAULT_MAX_PAGES = 100;
-const DEFAULT_OUTPUT_DIR = join(homedir(), "Downloads");
+const DEFAULT_OUTPUT_DIR = join(tmpdir(), "pi-web-pdf");
 
 async function getUnpdf() {
   if (typeof (Promise as PromiseConstructor & { try?: unknown }).try !== "function") {
