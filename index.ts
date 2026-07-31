@@ -204,7 +204,7 @@ const MAX_CURATOR_TIMEOUT_SECONDS = 600;
 function searchProviderSchema(description: string) {
 	return Type.Union([
 		StringEnum([...SEARCH_PROVIDERS]),
-		Type.Array(StringEnum([...RESOLVED_SEARCH_PROVIDERS]), { minItems: 1, uniqueItems: true }),
+		Type.Array(StringEnum([...RESOLVED_SEARCH_PROVIDERS]), { minItems: 1 }),
 	], { description });
 }
 
