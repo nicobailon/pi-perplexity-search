@@ -622,7 +622,7 @@ async function searchWithGeminiApi(query: string, options: SearchOptions = {}): 
 		const model = getSearchConfig().searchModel ?? DEFAULT_SEARCH_MODEL;
 		const body = {
 			contents: [{ role: "user", parts: [{ text: query }] }],
-			tools: [{ google_search: {} }],
+			tools: [{ googlesearch: {} }],
 		};
 
 		const res = await fetchGeminiApi(`${getVersionedApiBase()}/models/${model}:generateContent`, {
