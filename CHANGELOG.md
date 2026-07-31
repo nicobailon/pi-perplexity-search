@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Removed the unsupported JSON Schema `uniqueItems` keyword from provider-array tool schemas so Gemini-compatible tool validators can register pi-web-access tools. Thanks `@akmaldira` for PR #191.
+
 ## [0.17.0] - 2026-07-30
 
 ### Added
