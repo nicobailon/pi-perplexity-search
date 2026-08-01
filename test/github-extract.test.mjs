@@ -180,16 +180,16 @@ test("GitHub clones disable interactive credential prompts", { skip: process.pla
 	});
 });
 
-test("GitHub clone timeout terminates descendant processes", { skip: process.platform === "win32" }, async () => {
+test("GitHub clone timeout force-kills the SIGTERM-resistant process group", { skip: process.platform === "win32" }, async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-timeout-tree-"));
 	const agentDir = join(root, "agent-dir");
 	const binDir = join(root, "bin");
-	const helperPidFile = join(root, "helper.pid");
+	const processPidFile = join(root, "processes.json");
 	await mkdir(agentDir, { recursive: true });
 	await mkdir(binDir, { recursive: true });
 	await writeFile(
 		join(agentDir, "web-search.json"),
-		JSON.stringify({ githubClone: { clonePath: join(root, "repos"), cloneTimeoutSeconds: 0.1 } }),
+		JSON.stringify({ githubClone: { clonePath: join(root, "repos"), cloneTimeoutSeconds: 0.5 } }),
 		"utf8",
 	);
 	await writeFakeExecutable(binDir, "gh", "process.exit(1);");
@@ -198,9 +198,17 @@ test("GitHub clone timeout terminates descendant processes", { skip: process.pla
 		"git",
 		`
 			const { spawn } = require("node:child_process");
-			const { writeFileSync } = require("node:fs");
-			const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-			writeFileSync(process.env.CLONE_HELPER_PID_FILE, String(helper.pid));
+			process.on("SIGTERM", () => {});
+			const helperSource = ${JSON.stringify(`
+				const { writeFileSync } = require("node:fs");
+				process.on("SIGTERM", () => {});
+				writeFileSync(process.env.CLONE_PROCESS_PID_FILE, JSON.stringify({
+					rootPid: process.ppid,
+					helperPid: process.pid,
+				}));
+				setInterval(() => {}, 1000);
+			`)};
+			spawn(process.execPath, ["-e", helperSource], { stdio: "ignore" });
 			setInterval(() => {}, 1000);
 		`,
 	);
@@ -212,10 +220,10 @@ test("GitHub clone timeout terminates descendant processes", { skip: process.pla
 			console.log(JSON.stringify(result));
 		`,
 		encoding: "utf8",
-		timeout: 5000,
+		timeout: 10000,
 		env: {
 			...process.env,
-			CLONE_HELPER_PID_FILE: helperPidFile,
+			CLONE_PROCESS_PID_FILE: processPidFile,
 			PATH: `${binDir}${delimiter}${process.env.PATH || ""}`,
 			PI_CODING_AGENT_DIR: agentDir,
 		},
@@ -223,10 +231,12 @@ test("GitHub clone timeout terminates descendant processes", { skip: process.pla
 
 	assert.equal(child.status, 0, child.stderr);
 	assert.equal(JSON.parse(child.stdout), null);
-	const helperPid = Number.parseInt(await readFile(helperPidFile, "utf8"), 10);
+	const { rootPid, helperPid } = JSON.parse(await readFile(processPidFile, "utf8"));
 	try {
-		assert.equal(await waitForProcessExit(helperPid), true, `clone helper ${helperPid} survived timeout`);
+		assert.equal(await waitForProcessExit(rootPid), true, `clone process ${rootPid} survived SIGKILL fallback`);
+		assert.equal(await waitForProcessExit(helperPid), true, `clone helper ${helperPid} survived SIGKILL fallback`);
 	} finally {
+		if (processIsAlive(rootPid)) process.kill(rootPid, "SIGKILL");
 		if (processIsAlive(helperPid)) process.kill(helperPid, "SIGKILL");
 	}
 });
