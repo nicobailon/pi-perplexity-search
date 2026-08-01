@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, rmSync, statSync, readdirSync, openSync, readSync, closeSync, realpathSync } from "node:fs";
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { extname, join, resolve as resolvePath, sep as pathSep } from "node:path";
 import { activityMonitor } from "./activity.ts";
 import type { ExtractedContent } from "./extract.ts";
@@ -186,10 +186,45 @@ function cloneDir(config: GitHubCloneConfig, owner: string, repo: string, ref?: 
 	return join(config.clonePath, owner, dirName);
 }
 
+function terminateProcessTree(child: ChildProcess): void {
+	const pid = child.pid;
+	if (!pid) return;
+
+	if (process.platform === "win32") {
+		const killer = execFile(
+			"taskkill",
+			["/pid", String(pid), "/T", "/F"],
+			{ windowsHide: true },
+			(err) => {
+				if (err) child.kill();
+			},
+		);
+		killer.unref();
+		return;
+	}
+
+	try {
+		// Clone commands run in their own process group so git/gh helpers cannot
+		// survive a timeout or cancellation and keep reading from the host TTY.
+		process.kill(-pid, "SIGTERM");
+	} catch {
+		child.kill();
+	}
+}
+
 function execClone(args: string[], localPath: string, timeoutMs: number, signal?: AbortSignal): Promise<string | null> {
 	return new Promise((resolve) => {
-		const child = execFile(args[0], args.slice(1), { timeout: timeoutMs }, (err) => {
-			if (err) {
+		let settled = false;
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		let onAbort: (() => void) | undefined;
+
+		const finish = (success: boolean) => {
+			if (settled) return;
+			settled = true;
+			if (timeout) clearTimeout(timeout);
+			if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+
+			if (!success) {
 				try {
 					rmSync(localPath, { recursive: true, force: true });
 				} catch {
@@ -198,12 +233,33 @@ function execClone(args: string[], localPath: string, timeoutMs: number, signal?
 				return;
 			}
 			resolve(localPath);
+		};
+
+		const child = spawn(args[0], args.slice(1), {
+			detached: process.platform !== "win32",
+			env: {
+				...process.env,
+				GIT_TERMINAL_PROMPT: "0",
+				GCM_INTERACTIVE: "Never",
+				GH_PROMPT_DISABLED: "1",
+			},
+			stdio: "ignore",
+			windowsHide: true,
 		});
 
+		child.once("error", () => finish(false));
+		child.once("close", (code) => finish(code === 0));
+
+		timeout = setTimeout(() => terminateProcessTree(child), timeoutMs);
+		timeout.unref();
+
 		if (signal) {
-			const onAbort = () => child.kill();
-			signal.addEventListener("abort", onAbort, { once: true });
-			child.on("exit", () => signal.removeEventListener("abort", onAbort));
+			onAbort = () => {
+				if (timeout) clearTimeout(timeout);
+				terminateProcessTree(child);
+			};
+			if (signal.aborted) onAbort();
+			else signal.addEventListener("abort", onAbort, { once: true });
 		}
 	});
 }
