@@ -186,6 +186,8 @@ function cloneDir(config: GitHubCloneConfig, owner: string, repo: string, ref?: 
 	return join(config.clonePath, owner, dirName);
 }
 
+const PROCESS_KILL_GRACE_MS = 3000;
+
 function terminateProcessTree(child: ChildProcess): void {
 	const pid = child.pid;
 	if (!pid) return;
@@ -210,6 +212,17 @@ function terminateProcessTree(child: ChildProcess): void {
 	} catch {
 		child.kill();
 	}
+
+	// A credential helper may handle or ignore SIGTERM. Escalate against the
+	// entire process group so neither git nor any descendant can block forever.
+	const forceKill = setTimeout(() => {
+		try {
+			process.kill(-pid, "SIGKILL");
+		} catch {
+			child.kill("SIGKILL");
+		}
+	}, PROCESS_KILL_GRACE_MS);
+	forceKill.unref();
 }
 
 function execClone(args: string[], localPath: string, timeoutMs: number, signal?: AbortSignal): Promise<string | null> {
