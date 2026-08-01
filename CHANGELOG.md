@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- GitHub clone subprocesses now disable interactive credential prompts and terminate their process trees on timeout or cancellation, preventing orphaned Git helpers from capturing terminal input.
+
 ## [0.17.1] - 2026-07-31
 
 ### Fixed

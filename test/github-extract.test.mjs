@@ -1,11 +1,44 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { test } from "node:test";
 
 const extractModuleUrl = new URL("../github-extract.ts", import.meta.url).href;
+
+async function writeFakeExecutable(binDir, name, source) {
+	const executable = join(binDir, name);
+	await writeFile(executable, `#!/usr/bin/env node\n${source}\n`, { mode: 0o755 });
+	return executable;
+}
+
+function processIsAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		try {
+			// Container PID 1 may reap orphaned descendants slowly. A zombie is
+			// already terminated and can no longer hold or read from a terminal.
+			const state = readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /, "").split(" ")[0];
+			if (state === "Z") return false;
+		} catch {
+			// Non-Linux platforms do not expose /proc; kill(0) remains the check.
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function waitForProcessExit(pid, timeoutMs = 2000) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (!processIsAlive(pid)) return true;
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	return !processIsAlive(pid);
+}
 
 test("normalizeClonePath expands ~ to HOME", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-expand-"));
@@ -89,6 +122,113 @@ test("normalizeClonePath handles absolute paths without expansion", async () => 
 	});
 
 	assert.equal(child.status, 0, child.stderr);
+});
+
+test("GitHub clones disable interactive credential prompts", { skip: process.platform === "win32" }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-noninteractive-"));
+	const agentDir = join(root, "agent-dir");
+	const binDir = join(root, "bin");
+	const clonePath = join(root, "repos");
+	const envFile = join(root, "clone-env.json");
+	await mkdir(agentDir, { recursive: true });
+	await mkdir(binDir, { recursive: true });
+	await writeFile(
+		join(agentDir, "web-search.json"),
+		JSON.stringify({ githubClone: { clonePath, cloneTimeoutSeconds: 1 } }),
+		"utf8",
+	);
+	await writeFakeExecutable(binDir, "gh", "process.exit(1);");
+	await writeFakeExecutable(
+		binDir,
+		"git",
+		`
+			const { mkdirSync, writeFileSync } = require("node:fs");
+			const { join } = require("node:path");
+			const destination = process.argv.at(-1);
+			mkdirSync(destination, { recursive: true });
+			writeFileSync(join(destination, "README.md"), "fixture");
+			writeFileSync(process.env.CLONE_ENV_FILE, JSON.stringify({
+				gitTerminalPrompt: process.env.GIT_TERMINAL_PROMPT,
+				gcmInteractive: process.env.GCM_INTERACTIVE,
+				ghPromptDisabled: process.env.GH_PROMPT_DISABLED,
+			}));
+		`,
+	);
+
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const { extractGitHub } = await import(${JSON.stringify(extractModuleUrl)});
+			const result = await extractGitHub("https://github.com/test/repo");
+			console.log(JSON.stringify(result !== null));
+		`,
+		encoding: "utf8",
+		timeout: 5000,
+		env: {
+			...process.env,
+			CLONE_ENV_FILE: envFile,
+			PATH: `${binDir}${delimiter}${process.env.PATH || ""}`,
+			PI_CODING_AGENT_DIR: agentDir,
+		},
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	assert.equal(JSON.parse(child.stdout), true);
+	assert.deepEqual(JSON.parse(await readFile(envFile, "utf8")), {
+		gitTerminalPrompt: "0",
+		gcmInteractive: "Never",
+		ghPromptDisabled: "1",
+	});
+});
+
+test("GitHub clone timeout terminates descendant processes", { skip: process.platform === "win32" }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-timeout-tree-"));
+	const agentDir = join(root, "agent-dir");
+	const binDir = join(root, "bin");
+	const helperPidFile = join(root, "helper.pid");
+	await mkdir(agentDir, { recursive: true });
+	await mkdir(binDir, { recursive: true });
+	await writeFile(
+		join(agentDir, "web-search.json"),
+		JSON.stringify({ githubClone: { clonePath: join(root, "repos"), cloneTimeoutSeconds: 0.1 } }),
+		"utf8",
+	);
+	await writeFakeExecutable(binDir, "gh", "process.exit(1);");
+	await writeFakeExecutable(
+		binDir,
+		"git",
+		`
+			const { spawn } = require("node:child_process");
+			const { writeFileSync } = require("node:fs");
+			const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+			writeFileSync(process.env.CLONE_HELPER_PID_FILE, String(helper.pid));
+			setInterval(() => {}, 1000);
+		`,
+	);
+
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const { extractGitHub } = await import(${JSON.stringify(extractModuleUrl)});
+			const result = await extractGitHub("https://github.com/test/repo");
+			console.log(JSON.stringify(result));
+		`,
+		encoding: "utf8",
+		timeout: 5000,
+		env: {
+			...process.env,
+			CLONE_HELPER_PID_FILE: helperPidFile,
+			PATH: `${binDir}${delimiter}${process.env.PATH || ""}`,
+			PI_CODING_AGENT_DIR: agentDir,
+		},
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	assert.equal(JSON.parse(child.stdout), null);
+	const helperPid = Number.parseInt(await readFile(helperPidFile, "utf8"), 10);
+	try {
+		assert.equal(await waitForProcessExit(helperPid), true, `clone helper ${helperPid} survived timeout`);
+	} finally {
+		if (processIsAlive(helperPid)) process.kill(helperPid, "SIGKILL");
+	}
 });
 
 test("githubClone.enabled false skips GitHub clone/API specialization", async () => {
