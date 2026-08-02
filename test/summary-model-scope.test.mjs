@@ -172,6 +172,33 @@ test("preferred models resolve through routed providers", () => {
 	);
 });
 
+test("model resolution preserves the direct registry fallback", () => {
+	const configuredModel = { provider: "anthropic", id: "claude-haiku-4-5" };
+	const registry = {
+		find: () => configuredModel,
+		getAvailable: () => [],
+	};
+
+	assert.equal(
+		findModelWithProviderRouting(registry, "anthropic", "claude-haiku-4-5"),
+		configuredModel,
+	);
+});
+
+test("routed model resolution follows available-model ordering", () => {
+	const firstRoute = { provider: "openrouter", id: "anthropic/claude-haiku-4-5" };
+	const secondRoute = { provider: "requesty", id: "anthropic/claude-haiku-4-5" };
+	const registry = {
+		find: () => undefined,
+		getAvailable: () => [firstRoute, secondRoute],
+	};
+
+	assert.equal(
+		findModelWithProviderRouting(registry, "anthropic", "claude-haiku-4-5"),
+		firstRoute,
+	);
+});
+
 test("enabledModels loading uses trusted project settings over global settings", async () => {
 	const agentDir = await mkdtemp(join(tmpdir(), "pi-web-access-agent-"));
 	const projectDir = await mkdtemp(join(tmpdir(), "pi-web-access-project-"));
