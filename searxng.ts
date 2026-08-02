@@ -9,6 +9,7 @@ const SEARCH_TIMEOUT_MS = 30_000;
 
 interface WebSearchConfig {
 	searxngBaseUrl?: unknown;
+	searxngHeaders?: unknown;
 }
 
 interface NormalizedDomainFilters {
@@ -68,6 +69,23 @@ function getBaseUrl(): string | null {
 	return configured !== undefined
 		? normalizeBaseUrl(configured)
 		: normalizeBaseUrl(loadConfig().searxngBaseUrl);
+}
+
+function normalizeHeaders(value: unknown): Record<string, string> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	const headers: Record<string, string> = {};
+	for (const [key, headerValue] of Object.entries(value as Record<string, unknown>)) {
+		if (typeof headerValue !== "string") continue;
+		const name = key.trim();
+		// RFC 7230 token chars only — reject empty or malformed header names.
+		if (!name || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) continue;
+		headers[name] = headerValue;
+	}
+	return headers;
+}
+
+function getConfiguredHeaders(): Record<string, string> {
+	return normalizeHeaders(loadConfig().searxngHeaders);
 }
 
 function requireBaseUrl(): string {
@@ -168,7 +186,7 @@ export async function searchWithSearXNG(query: string, options: SearchOptions = 
 	try {
 		const response = await fetchRemoteUrl(url, {
 			method: "GET",
-			headers: { Accept: "application/json" },
+			headers: { Accept: "application/json", ...getConfiguredHeaders() },
 			signal: options.signal
 				? AbortSignal.any([AbortSignal.timeout(SEARCH_TIMEOUT_MS), options.signal])
 				: AbortSignal.timeout(SEARCH_TIMEOUT_MS),

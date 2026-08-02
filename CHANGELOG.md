@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added optional `searxngHeaders` so self-hosted SearXNG requests can carry reverse-proxy or Zero Trust auth headers (for example Cloudflare Access service tokens).
+
 ## [0.17.1] - 2026-07-31
 
 ### Fixed
