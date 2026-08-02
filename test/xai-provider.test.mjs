@@ -101,6 +101,56 @@ test("xAI folds recency and domain filters into the prompt rather than tool para
 	assert.match(body.input, /around 4 distinct sources/);
 });
 
+// The registry path survives model retirement by walking AUTH_MODEL_CANDIDATES
+// against models pi actually knows. The api-key path can't — nothing tells it
+// which ids are live — so `xaiSearchModel` is its escape hatch, the same one
+// `openaiSearchModel` gives the OpenAI backend.
+test("xaiSearchModel pins the model id on the api-key path", async () => {
+	const home = await createHome({ xaiApiKey: "xai-key", xaiSearchModel: "  grok-5  " });
+	const child = runChild(`
+		let captured;
+		globalThis.fetch = async (_url, init) => { captured = JSON.parse(init.body); return new Response(${JSON.stringify(successBody())}, { status: 200 }); };
+		const { searchWithXai } = await import(${JSON.stringify(xaiModuleUrl)});
+		await searchWithXai("pinned");
+		console.log(JSON.stringify(captured));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	assert.equal(JSON.parse(child.stdout.trim()).model, "grok-5");
+});
+
+test("xAI defaults to the first candidate model when xaiSearchModel is unset", async () => {
+	const home = await createHome({ xaiApiKey: "xai-key" });
+	const child = runChild(`
+		let captured;
+		globalThis.fetch = async (_url, init) => { captured = JSON.parse(init.body); return new Response(${JSON.stringify(successBody())}, { status: 200 }); };
+		const { searchWithXai } = await import(${JSON.stringify(xaiModuleUrl)});
+		await searchWithXai("default");
+		console.log(JSON.stringify(captured));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	assert.equal(JSON.parse(child.stdout.trim()).model, "grok-4.5");
+});
+
+test("a non-string or empty xaiSearchModel is rejected rather than silently ignored", async () => {
+	for (const bad of [42, "   "]) {
+		const home = await createHome({ xaiApiKey: "xai-key", xaiSearchModel: bad });
+		const child = runChild(`
+			globalThis.fetch = async () => { throw new Error("must not reach the network"); };
+			const { searchWithXai } = await import(${JSON.stringify(xaiModuleUrl)});
+			try {
+				await searchWithXai("bad model");
+				console.log(JSON.stringify({ threw: false }));
+			} catch (err) {
+				console.log(JSON.stringify({ threw: true, message: err.message }));
+			}
+		`, { PI_CODING_AGENT_DIR: home });
+		assert.equal(child.status, 0, child.stderr);
+		const { threw, message } = JSON.parse(child.stdout.trim());
+		assert.equal(threw, true, `xaiSearchModel ${JSON.stringify(bad)} should be rejected`);
+		assert.match(message, /xaiSearchModel .* must be a non-empty string/);
+	}
+});
+
 test("explicit xai provider routing works", async () => {
 	const home = await createHome({});
 	const child = runChild(`
