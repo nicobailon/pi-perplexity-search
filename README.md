@@ -4,7 +4,7 @@
 
 # Pi Web Access
 
-**Web search, content extraction, and video understanding for Pi agent. OpenAI/Codex search, zero-config Exa search, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, SERPdive, AnySearch, self-hosted SearXNG, optional browser-cookie Gemini Web, or bring your own API keys.**
+**Web search, content extraction, and video understanding for Pi agent. OpenAI/Codex search, zero-config Exa search, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, SERPdive, AnySearch, Bright Data SERP, self-hosted SearXNG, optional browser-cookie Gemini Web, or bring your own API keys.**
 
 [![npm version](https://img.shields.io/npm/v/pi-web-access?style=for-the-badge)](https://www.npmjs.com/package/pi-web-access)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
@@ -94,7 +94,7 @@ fetch_content({ url: "/path/to/recording.mp4", prompt: "What error appears on sc
 
 ### web_search
 
-Search the web via OpenAI, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, SERPdive, AnySearch, self-hosted SearXNG, Exa, Perplexity AI, or Gemini. Returns a synthesized answer with source citations.
+Search the web via OpenAI, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, SERPdive, AnySearch, Bright Data SERP, self-hosted SearXNG, Exa, Perplexity AI, or Gemini. Returns a synthesized answer with source citations.
 
 ```typescript
 web_search({ query: "rust async programming" })
@@ -115,7 +115,7 @@ web_search({ queries: ["query 1", "query 2"], workflow: "auto-summary" })
 | `numResults` | Results per query (default: 5, max: 20) |
 | `recencyFilter` | `day`, `week`, `month`, or `year` |
 | `domainFilter` | Limit to domains (prefix with `-` to exclude) |
-| `provider` | Configured provider when omitted or set to `auto`; `all` searches every eligible provider except AnySearch simultaneously; otherwise `openai`, `brave`, `parallel`, `tinyfish`, `search1api`, `searchinfinity`, `querit`, `tavily`, `serpdive`, `anysearch`, `searxng`, `exa`, `perplexity`, or `gemini` (auto-selects when no provider or routing is configured; AnySearch is explicit-only) |
+| `provider` | Configured provider when omitted or set to `auto`; `all` searches every eligible provider except AnySearch and Bright Data simultaneously; otherwise `openai`, `brave`, `parallel`, `tinyfish`, `search1api`, `searchinfinity`, `querit`, `tavily`, `serpdive`, `anysearch`, `brightdata`, `searxng`, `exa`, `perplexity`, or `gemini` (auto-selects when no provider or routing is configured; AnySearch and Bright Data are explicit-only) |
 | `includeContent` | Fetch full page content from sources in background |
 | `workflow` | `none` (skip curator), `summary-review` (open curator and auto-generate a summary draft, default), or `auto-summary` (generate a summary without opening the curator) |
 
@@ -285,6 +285,8 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
   "tavilyApiKey": "tvly-...",
   "serpdiveApiKey": "sd_live_...",
   "serpdiveModel": "krill",
+  "brightdataApiKey": "$BRIGHTDATA_API_KEY",
+  "brightdataSerpZone": "pi_serp",
   "searxngBaseUrl": "https://search.example.com",
   "firecrawlBaseUrl": "https://crawl.example.com",
   "firecrawlApiKey": "fc-...",
@@ -348,7 +350,7 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
 }
 ```
 
-All provider API-key fields (`openaiApiKey`, `braveApiKey`, `parallelApiKey`, `tinyfishApiKey`, `search1apiApiKey`, `searchinfinityApiKey`, `queritApiKey`, `tavilyApiKey`, `serpdiveApiKey`, `anysearchApiKey`, `firecrawlApiKey`, `exaApiKey`, `perplexityApiKey`, `geminiApiKey`, and `cloudflareApiKey`) accept explicit credential sources. Use `$NAME` or `${NAME}` to read one named environment variable, or prefix a trusted local shell command with `!` to resolve one value at provider request time. Escape `$$` as a literal leading `$` and `$!` as a literal leading `!`:
+All provider API-key fields (`openaiApiKey`, `braveApiKey`, `parallelApiKey`, `tinyfishApiKey`, `search1apiApiKey`, `searchinfinityApiKey`, `queritApiKey`, `tavilyApiKey`, `serpdiveApiKey`, `anysearchApiKey`, `brightdataApiKey`, `firecrawlApiKey`, `exaApiKey`, `perplexityApiKey`, `geminiApiKey`, and `cloudflareApiKey`) accept explicit credential sources. Use `$NAME` or `${NAME}` to read one named environment variable, or prefix a trusted local shell command with `!` to resolve one value at provider request time. Escape `$$` as a literal leading `$` and `$!` as a literal leading `!`:
 
 ```json
 {
@@ -359,7 +361,7 @@ All provider API-key fields (`openaiApiKey`, `braveApiKey`, `parallelApiKey`, `t
 }
 ```
 
-This syntax applies to provider credentials only; other configuration fields are not interpolated. `firecrawlApiKey` uses the same credential-source rules, while `firecrawlBaseUrl`, `firecrawlApiVersion`, and `firecrawlFreshScrape` are literal config values.
+This syntax applies to provider credentials only; other configuration fields are not interpolated. `firecrawlApiKey` and `brightdataApiKey` use the same credential-source rules, while `firecrawlBaseUrl`, `firecrawlApiVersion`, `firecrawlFreshScrape`, and `brightdataSerpZone` are literal config values.
 
 A command source is not run while the extension loads or registers tools. Each selected provider request runs it again with a five-second timeout, a 16 KiB output limit, a minimized environment, and a one-line non-empty stdout requirement. Command text and stderr are omitted from errors. These commands are trusted local configuration, not a same-user process isolation boundary; use absolute executable paths and protect the config file. `OP_SESSION_*` variables are forwarded to trusted resolver commands so shell-local 1Password sessions can be reused without storing them in config. An explicit source overrides legacy provider environment variables and fails that provider locally rather than falling back with a stale credential. Direct Google Gemini API requests send the resolved key only in the `x-goog-api-key` header, never in the URL.
 
@@ -369,11 +371,11 @@ Set `searxngBaseUrl` or `SEARXNG_BASE_URL` to use a self-hosted SearXNG JSON API
 
 Set `firecrawlBaseUrl` or `FIRECRAWL_BASE_URL` to use Firecrawl as an extraction-only fallback for `fetch_content`. It calls `/v2/scrape` by default; set `firecrawlApiVersion` or `FIRECRAWL_API_VERSION` to `v1` for older self-hosted images. Firecrawl requests are cache-only by default (`lockdown: true`), so the Firecrawl server does not make fresh outbound target requests unless you explicitly set `firecrawlFreshScrape: true` or `FIRECRAWL_FRESH_SCRAPE=1`. Enable fresh scraping only for a Firecrawl deployment whose own egress, redirects, DNS rebinding behavior, and internal-network access are isolated or allowlisted; this extension can preflight the submitted URL but cannot control network requests made by the Firecrawl server. The configured Firecrawl API base URL and redirects are still validated by the same SSRF guard as other remote requests, and Firecrawl credentials are stripped from cross-origin API redirects.
 
-Without an explicit `$` or `!` source, `OPENAI_API_KEY`, `BRAVE_API_KEY`, `PARALLEL_API_KEY`, `TINYFISH_API_KEY`, `SEARCH1API_KEY`, `SEARCHINFINITY_API_KEY`, `QUERIT_API_KEY`, `TAVILY_API_KEY`, `SERPDIVE_API_KEY`, `ANYSEARCH_API_KEY`, `FIRECRAWL_API_KEY`, `EXA_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, and `CLOUDFLARE_API_KEY` env vars retain their existing precedence over literal config file values. `openaiResponsesUrl` can point OpenAI `web_search` and `source_check` at a third-party gateway that supports the OpenAI Responses API and web search tool; it is an explicit endpoint override, not derived from Pi model provider settings, and defaults to `https://api.openai.com/v1/responses`. `openaiSearchModel` pins the model id used for OpenAI `web_search`, bypassing automatic selection (newest terra-tier model); the id is sent verbatim with whichever OpenAI auth resolves, so gateway-only model ids work too. Configured Exa API keys use Exa's own account limits directly; any legacy local `exa-usage.json` file is ignored. `GOOGLE_GEMINI_BASE_URL` overrides the Gemini API host for Gemini generate-content calls such as search, URL context, YouTube, and local video analysis. Set it to a bare host with no trailing slash and no version segment, for example `https://my-gateway.example.com/gemini`; `geminiBaseUrl` is the config-file equivalent. When the configured host contains `gateway.ai.cloudflare.com`, authentication uses `cf-aig-authorization: Bearer <token>` from `CLOUDFLARE_API_KEY` or `cloudflareApiKey`, and `GEMINI_API_KEY` is not required for generate-content calls. Local video file upload still uses Google's Files API directly, so gateway-only video extraction falls back to Gemini Web unless a `GEMINI_API_KEY` is also configured. `provider` or `searchProvider` sets the default search provider and is used when a tool call omits `provider` or sends `"auto"`: `"all"`, `"openai"`, `"brave"`, `"parallel"`, `"tinyfish"`, `"search1api"`, `"searchinfinity"`, `"querit"`, `"tavily"`, `"serpdive"`, `"anysearch"`, `"searxng"`, `"exa"`, `"perplexity"`, or `"gemini"`. AnySearch is never selected by `auto`; choose it explicitly or place it in `searchRouting`. If either single-provider field is configured, it takes precedence over `searchRouting`. Otherwise, `searchRouting` can opt into an ordered `providers` list and an explicit `fallbackOn` list containing `"transient"`, `"quota"`, and/or `"network"`; only those typed failures continue to the next available candidate. `"all"` is not valid inside `searchRouting.providers`, because that list defines sequential fallback rather than multi-provider aggregation. Named providers remain strict, and exhausted routes return per-provider diagnostics. `provider` can also be a non-empty array of named providers such as `["brave", "exa"]`; those providers run concurrently using the same aggregation path as `"all"`, while `"auto"` and `"all"` are invalid inside arrays. Random, weighted, sticky, and cooldown routing are not enabled. This is also updated automatically when you change the provider in the curator UI. Set `webSearch.enabled` to `false` to unregister the configured search and source-check tools while leaving fetch/content tools available. `toolNames` can opt into alternate public tool names for environments where another extension or model reserves the defaults, without changing behavior: `webSearch`, `sourceCheck`, `fetchContent`, and `getSearchContent` default to `web_search`, `source_check`, `fetch_content`, and `get_search_content`. `workflow` sets the default search workflow: `"summary-review"` (default, opens curator with auto-generated summary draft), `"auto-summary"` (returns a model-generated summary without opening the curator), or `"none"` (raw results, no curator). Overridden per-call via the `workflow` parameter on the configured search tool, or toggled at runtime with `/curator`. `chromeProfile` pins Gemini Web cookie lookup to a specific Chromium profile. When omitted, detected Chromium profiles are scanned in stable order and the first profile containing the required Gemini cookies is used. `allowBrowserCookies` enables Chromium cookie extraction for Gemini Web; it defaults to `false` to avoid browser data access and surprise macOS Keychain prompts. You can also set `PI_ALLOW_BROWSER_COOKIES=1`. Cookie databases are copied to a temporary read-only working copy; the reader uses `node:sqlite` when available and otherwise tries the `sqlite3` CLI or Python's standard-library SQLite module. `searchModel` overrides the Gemini API model used by the configured search tool without changing URL, YouTube, or video extraction defaults. Gemini API grounded search uses `gemini-3.6-flash` by default; set `searchModel` to choose another model. Gemini Web browser-cookie fallback uses its separate `gemini-3.1-pro` default because Gemini Web relies on private header values; explicitly configured unsupported Web models fail instead of silently falling back to 2.5 Flash. `summaryModel` sets the default model used for generating summary drafts in the curator UI and `auto-summary` mode (e.g. `"anthropic/claude-haiku-4-5"`, `"openai-codex/gpt-5.3-codex-spark"`, or `"openrouter/nvidia/nemotron-3-super-120b-a12b:free"`). When Pi `enabledModels` is configured, summaries are limited to that allowlist; if no enabled summary model is available, the tool returns a deterministic summary instead of calling an unrelated model. `curatorTimeoutSeconds` controls the initial curator idle timeout (default `20`, max `600`); users can still adjust the timer in the curator UI. `ssrf.allowRanges` lists CIDR ranges (e.g. `"198.18.0.0/15"`, `"fd00::/8"`) exempted from the SSRF guard that otherwise blocks private/reserved IP ranges. This unblocks `fetch_content`/`web_search` on hosts whose network proxy runs in TUN + fake-IP mode (Surge, Clash, Mihomo, Stash, ...), where public domains resolve into a synthetic reserved range. It is **off by default** — the guard stays fully enabled unless you list ranges here. Use the narrowest range that covers your proxy's fake-IP pool. All-address CIDRs such as `0.0.0.0/0` and `::/0` are rejected. `ssrf.trustEnvProxy` is a separate opt-in for sandboxed environments with valid HTTP(S) proxy env vars; it skips local DNS preflight only for proxied hostnames and still blocks localhost, literal private IPs, and `NO_PROXY` matches. It does not configure proxy transport.
+Without an explicit `$` or `!` source, `OPENAI_API_KEY`, `BRAVE_API_KEY`, `PARALLEL_API_KEY`, `TINYFISH_API_KEY`, `SEARCH1API_KEY`, `SEARCHINFINITY_API_KEY`, `QUERIT_API_KEY`, `TAVILY_API_KEY`, `SERPDIVE_API_KEY`, `ANYSEARCH_API_KEY`, `BRIGHTDATA_API_KEY`, `FIRECRAWL_API_KEY`, `EXA_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, and `CLOUDFLARE_API_KEY` env vars retain their existing precedence over literal config file values. `openaiResponsesUrl` can point OpenAI `web_search` and `source_check` at a third-party gateway that supports the OpenAI Responses API and web search tool; it is an explicit endpoint override, not derived from Pi model provider settings, and defaults to `https://api.openai.com/v1/responses`. `openaiSearchModel` pins the model id used for OpenAI `web_search`, bypassing automatic selection (newest terra-tier model); the id is sent verbatim with whichever OpenAI auth resolves, so gateway-only model ids work too. Configured Exa API keys use Exa's own account limits directly; any legacy local `exa-usage.json` file is ignored. `GOOGLE_GEMINI_BASE_URL` overrides the Gemini API host for Gemini generate-content calls such as search, URL context, YouTube, and local video analysis. Set it to a bare host with no trailing slash and no version segment, for example `https://my-gateway.example.com/gemini`; `geminiBaseUrl` is the config-file equivalent. When the configured host contains `gateway.ai.cloudflare.com`, authentication uses `cf-aig-authorization: Bearer <token>` from `CLOUDFLARE_API_KEY` or `cloudflareApiKey`, and `GEMINI_API_KEY` is not required for generate-content calls. Local video file upload still uses Google's Files API directly, so gateway-only video extraction falls back to Gemini Web unless a `GEMINI_API_KEY` is also configured. `provider` or `searchProvider` sets the default search provider and is used when a tool call omits `provider` or sends `"auto"`: `"all"`, `"openai"`, `"brave"`, `"parallel"`, `"tinyfish"`, `"search1api"`, `"searchinfinity"`, `"querit"`, `"tavily"`, `"serpdive"`, `"anysearch"`, `"brightdata"`, `"searxng"`, `"exa"`, `"perplexity"`, or `"gemini"`. AnySearch and Bright Data are never selected by `auto`; choose either explicitly or place it in `searchRouting`. If either single-provider field is configured, it takes precedence over `searchRouting`. Otherwise, `searchRouting` can opt into an ordered `providers` list and an explicit `fallbackOn` list containing `"transient"`, `"quota"`, and/or `"network"`; only those typed failures continue to the next available candidate. `"all"` is not valid inside `searchRouting.providers`, because that list defines sequential fallback rather than multi-provider aggregation. Named providers remain strict, and exhausted routes return per-provider diagnostics. `provider` can also be a non-empty array of named providers such as `["brave", "exa"]`; those providers run concurrently using the same aggregation path as `"all"`, while `"auto"` and `"all"` are invalid inside arrays. Random, weighted, sticky, and cooldown routing are not enabled. This is also updated automatically when you change the provider in the curator UI. Set `webSearch.enabled` to `false` to unregister the configured search and source-check tools while leaving fetch/content tools available. `toolNames` can opt into alternate public tool names for environments where another extension or model reserves the defaults, without changing behavior: `webSearch`, `sourceCheck`, `fetchContent`, and `getSearchContent` default to `web_search`, `source_check`, `fetch_content`, and `get_search_content`. `workflow` sets the default search workflow: `"summary-review"` (default, opens curator with auto-generated summary draft), `"auto-summary"` (returns a model-generated summary without opening the curator), or `"none"` (raw results, no curator). Overridden per-call via the `workflow` parameter on the configured search tool, or toggled at runtime with `/curator`. `chromeProfile` pins Gemini Web cookie lookup to a specific Chromium profile. When omitted, detected Chromium profiles are scanned in stable order and the first profile containing the required Gemini cookies is used. `allowBrowserCookies` enables Chromium cookie extraction for Gemini Web; it defaults to `false` to avoid browser data access and surprise macOS Keychain prompts. You can also set `PI_ALLOW_BROWSER_COOKIES=1`. Cookie databases are copied to a temporary read-only working copy; the reader uses `node:sqlite` when available and otherwise tries the `sqlite3` CLI or Python's standard-library SQLite module. `searchModel` overrides the Gemini API model used by the configured search tool without changing URL, YouTube, or video extraction defaults. Gemini API grounded search uses `gemini-3.6-flash` by default; set `searchModel` to choose another model. Gemini Web browser-cookie fallback uses its separate `gemini-3.1-pro` default because Gemini Web relies on private header values; explicitly configured unsupported Web models fail instead of silently falling back to 2.5 Flash. `summaryModel` sets the default model used for generating summary drafts in the curator UI and `auto-summary` mode (e.g. `"anthropic/claude-haiku-4-5"`, `"openai-codex/gpt-5.3-codex-spark"`, or `"openrouter/nvidia/nemotron-3-super-120b-a12b:free"`). When Pi `enabledModels` is configured, summaries are limited to that allowlist; if no enabled summary model is available, the tool returns a deterministic summary instead of calling an unrelated model. `curatorTimeoutSeconds` controls the initial curator idle timeout (default `20`, max `600`); users can still adjust the timer in the curator UI. `ssrf.allowRanges` lists CIDR ranges (e.g. `"198.18.0.0/15"`, `"fd00::/8"`) exempted from the SSRF guard that otherwise blocks private/reserved IP ranges. This unblocks `fetch_content`/`web_search` on hosts whose network proxy runs in TUN + fake-IP mode (Surge, Clash, Mihomo, Stash, ...), where public domains resolve into a synthetic reserved range. It is **off by default** — the guard stays fully enabled unless you list ranges here. Use the narrowest range that covers your proxy's fake-IP pool. All-address CIDRs such as `0.0.0.0/0` and `::/0` are rejected. `ssrf.trustEnvProxy` is a separate opt-in for sandboxed environments with valid HTTP(S) proxy env vars; it skips local DNS preflight only for proxied hostnames and still blocks localhost, literal private IPs, and `NO_PROXY` matches. It does not configure proxy transport.
 
 ### All providers
 
-Set `provider: "all"` on `web_search` or `source_check`, or configure `"provider": "all"` as the default, to run the same query against every eligible search provider simultaneously. AnySearch is always excluded from this mode because it is explicit-only. Exa remains eligible through its zero-config MCP path, OpenAI can use Pi auth, and other API-backed search providers participate when their API key, local endpoint, or gateway makes them available. Browser-cookie access alone does not opt Gemini into `all`; select Gemini explicitly or configure its API/gateway. Firecrawl is an extraction backend, not a search provider, so it is not part of `all`.
+Set `provider: "all"` on `web_search` or `source_check`, or configure `"provider": "all"` as the default, to run the same query against every eligible search provider simultaneously. AnySearch and Bright Data are always excluded from this mode because they are explicit-only; Bright Data is paid, so `all` never spends on it. Exa remains eligible through its zero-config MCP path, OpenAI can use Pi auth, and other API-backed search providers participate when their API key, local endpoint, or gateway makes them available. Browser-cookie access alone does not opt Gemini into `all`; select Gemini explicitly or configure its API/gateway. Firecrawl is an extraction backend, not a search provider, so it is not part of `all`.
 
 Successful provider answers are preserved separately while source URLs and inline content are deduplicated, and one provider failure does not discard the other results. If every participating provider fails, the tool returns per-provider diagnostics. In the Curator, **All** can also be selected like the other provider buttons. Each participating provider gets its own result card, including a provider badge and independent selection checkbox; failed providers get their own disabled error card. The final summary is generated from the selected provider cards and is what Pi receives. Outside the Curator, the same provider answers remain available as labeled sections in one tool response.
 
@@ -444,6 +446,144 @@ Search requests follow the official [`querit-python`](https://github.com/querit-
 ### AnySearch
 
 AnySearch is an explicit-only provider: it is never included in zero-config `auto` fallback or in `provider: "all"`, but it can be selected with `provider: "anysearch"`, configured as the named provider, or placed in `searchRouting`. It supports anonymous requests and optional `anysearchApiKey` / `ANYSEARCH_API_KEY` credentials. Requests intentionally send only `{ query, max_results }`; `recencyFilter`, `domainFilter`, and `includeContent` do not add API request parameters. When `includeContent` is true, returned `content` fields are exposed as inline content.
+
+### Bright Data
+
+Bright Data SERP is a **paid, third-party search proxy**: your query, its filters, and the result URLs
+it turns up all pass through Bright Data's network. It is explicit-only — never included in zero-config
+`auto` fallback and never in `provider: "all"` — so adding a token never starts spending on your
+behalf, and one `all` search can never bill you for a Bright Data request. Select it with
+`provider: "brightdata"`, set it as the named `provider`, or place `"brightdata"` in
+`searchRouting.providers`. Naming it as the provider is never quietly redirected: if the Bright Data
+settings are incomplete, the search reports that rather than curating through a different provider
+under Bright Data's name. A `searchRouting` list is the exception, and it behaves there exactly as it
+does for every other provider in the list: an unavailable entry is skipped and the next candidate
+answers the query.
+
+It needs two settings, and it reports itself unavailable until both are present — as does a zone name
+it cannot use, so a typo makes Bright Data unavailable rather than breaking `web_search` for the
+providers that are configured correctly:
+
+```json
+{
+  "brightdataApiKey": "$BRIGHTDATA_API_KEY",
+  "brightdataSerpZone": "pi_serp",
+  "provider": "brightdata"
+}
+```
+
+`brightdataApiKey` (or `BRIGHTDATA_API_KEY`) is your account API token from
+[Bright Data → API tokens](https://brightdata.com/cp/setting/users). This extension uses one name per
+field, matching every other provider here, so if you already export that token under a different
+variable name, point at it explicitly rather than expecting an alias:
+`"brightdataApiKey": "$BRIGHTDATA_API_TOKEN"`. Like the other provider keys it also accepts a
+`!command` credential source, resolved once per request.
+
+**Zones.** A Bright Data zone is a named, per-product configuration on your account; requests are made
+against a zone and billed to it. `brightdataSerpZone` (or `BRIGHTDATA_SERP_ZONE`) must name a zone of
+type **`serp`**, created at
+[Bright Data → proxies and scraping infrastructure](https://brightdata.com/cp/zones). A Web Unlocker
+zone (type `unblocker`) is a different Bright Data product, priced differently, and it does not return
+SERP JSON: point this setting at one and the request is still made and billed, and whatever comes back
+is reported as an error rather than as zero results — an envelope with no `organic` array names the
+wrong zone type as the likely cause. The two zone types are never substituted for one another. There
+is deliberately no default, and no fallback to any other Bright Data zone setting you may have
+configured: guessing a zone name would bill the wrong product. Every request carries the zone, and
+every error about a request that was billed names it, because "which zone did I pay on" is the first
+question a paid failure has to answer. The messages that name no zone are the ones with nothing to
+attribute — a missing token, a rejected zone value, a config file that could not be read, or a
+connection that never returned a response.
+
+**Getting a token and a zone.** Sign up at [brightdata.com](https://brightdata.com); no credit card is
+required, and adding one is a verification step only. Connecting Bright Data's MCP server to your agent
+is the shortest path to a working setup: it provisions the zones for you and they draw on the same
+monthly free credits. Then put the SERP zone's name in `brightdataSerpZone`. This extension does not
+know or guess those names — a zone must be configured explicitly, so a stray `BRIGHTDATA_API_KEY` in
+your environment cannot make Bright Data available, and nothing can be billed against a zone that may
+not exist on your account.
+
+**Cost.** One search is one billable Bright Data request against that zone, charged whether or not the
+results are useful. `numResults` does not change that: one query is one request no matter how many
+results come back, so a slightly larger page size is requested to leave room for local filtering.
+Bright Data's free tier is 5,000 credits per month with no credit card required, and it covers the SERP
+API this provider uses; credits reset to 5,000 on the first of each month and unused credits are
+forfeited. Billing is a pre-paid wallet model — you are only ever charged for funds you have
+explicitly deposited, and when the free credits are exhausted requests return an error rather than
+incurring a charge — so accidental spend is not possible without a deliberate deposit. Two caveats:
+the free credits do not cover proxy products (Datacenter / ISP / Residential) or the Browser API, none
+of which this provider uses; and accounts already on custom pay-as-you-go pricing or a pre-commit plan
+are not eligible for the monthly credits. An account that has never deposited funds is also capped at
+1,000 requests per minute. See
+[free tier](https://docs.brightdata.com/general/account/billing-and-pricing/free-tier) and
+[brightdata.com/pricing](https://brightdata.com/pricing).
+
+**Privacy.** Your query text, your `domainFilter` and `recencyFilter` values, and the ranked URLs the
+search turns up are all visible to Bright Data, which runs the Google search from its own network on
+your behalf. Use SearXNG instead if queries must not leave infrastructure you control. Bright Data
+holds ISO/IEC 27001, 27017 and 27018 certification, SOC 2 Type II and SOC 3, states that it does not
+sell or license customer data to any third party, and will delete customer data on request; traffic is
+TLS 1.3 in transit and AES-256 at rest. Its published security documentation does not state a retention
+period for request data itself — the queries and URLs sent — and nothing here claims one:
+[security and privacy overview](https://docs.brightdata.com/general/security/security-overview#privacy-&-regulatory-compliance).
+
+**What the request looks like.** A Google search URL — carrying your query, `site:` operators, Google's
+`tbs` time filter, and `brd_json=1` — is submitted to `https://api.brightdata.com/request` with
+`{ zone, format: "raw", data_format: "parsed_light" }`. Bright Data returns the SERP as JSON and this
+extension reads its `organic` array.
+
+**Filters reach the engine.** Unlike providers with no filter parameters, both shared filters are
+expressed to Google itself:
+
+- **Recency is a real filter.** `recencyFilter` maps to Google's `tbs=qdr:d|w|m|y`, so pages outside the
+  window are not returned at all — not a ranking hint.
+- **Domain filters are `site:` operators.** Includes become `site:example.com` (multiple includes are
+  OR-ed), excludes become `-site:example.com`. Google honours these loosely, so the same filter is
+  applied again to the results that come back; a host you excluded never reaches the caller.
+
+**Output contract.** A SERP zone returns ranked links, so results are `{ title, url, snippet }` mapped
+from `organic[].{title, link, description}` and the `answer` is assembled from those sources, the same
+way Brave and SearXNG answers are assembled. There is no API-side answer synthesis. `includeContent` is
+accepted and has no effect: `parsed_light` carries no page bodies, so `inlineContent` is never returned
+and no second billable request is made behind your back. Entries with no link, and hosts your filters
+exclude, are skipped.
+
+**Failures are never silent.** A non-2xx response throws
+`Bright Data API error <status> for zone <zone>` with the response body redacted of your token, so
+`402`/`429` classify as `quota` and `401`/`403` as `auth` for `searchRouting.fallbackOn`. Every billed
+`200` this extension cannot read throws as well, because the request was paid for and an empty result
+list would report it as "the web had no answer":
+
+- **not JSON at all** — Google's "unusual traffic" interstitial reaches you as the raw proxied body,
+  quoted to the first 300 characters rather than reduced to `Unexpected token <`;
+- **JSON, but Bright Data's own error envelope** — `format: "raw"` means failures like
+  `{"error":"zone not found","code":"zone_missing"}` arrive with HTTP 200, and the reported message
+  repeats what Bright Data said and the code it said it with;
+- **JSON, but not a SERP** — an envelope with no `organic` array is reported as such, naming the
+  likeliest cause (a zone that is not of type `serp`), rather than as zero results.
+
+Quoted upstream text cannot impersonate this extension's own diagnostics, in either of the two ways
+routing reads them. It cannot impersonate a status: a proxied page mentioning "Error 503" is quoted as
+`upstream 503`, and because the quoted text is truncated before it is rewritten, a body engineered so
+that the length cut turns a longer number into a three-digit one cannot manufacture a status either.
+It cannot impersonate a rate-limit phrase: those are quoted as `upstream rate-limit notice`, so a page
+saying "you have exceeded your rate limit" cannot make a billed request look like a quota failure. The
+number and the wording still reach you; only this extension's own text decides how the failure is
+classified. A billed `200` therefore always surfaces as an unreadable-response error, and can never be
+reclassified as retryable and swallowed by `searchRouting.fallbackOn`.
+
+Your token is removed from every quoted response body, error message and activity log line before it
+is shown, and no prefix of it survives either: the parser's own message, which quotes the first
+characters of a body back inside itself, is dropped rather than filtered. `web-search.json` gets the
+same treatment from the other direction: if the file is not valid JSON, the error names the file, and
+the parse position where the parser reports one, but repeats none of the file's own text, since that
+text is where your credentials live.
+
+A missing or malformed zone, and a missing token, all fail before any request is made. A malformed
+zone is a request-path error only — it makes Bright Data report itself unavailable, and never
+propagates out of provider availability into an unrelated provider's search.
+
+Searches use a 60-second timeout and honour cancellation: aborting a `web_search` aborts the in-flight
+Bright Data request rather than waiting for it.
 
 ### SERPdive
 
@@ -562,6 +702,7 @@ Rate limits: Perplexity is capped at 10 requests/minute (client-side). TinyFish,
 | `querit.ts` | Querit Search and Contents API provider |
 | `tavily.ts` | Tavily Search API provider |
 | `serpdive.ts` | SERPdive Search API provider |
+| `brightdata.ts` | Explicit-only Bright Data SERP search provider |
 | `anysearch.ts` | Explicit-only AnySearch search provider |
 | `searxng.ts` | Self-hosted SearXNG JSON API search provider |
 | `exa.ts` | Exa.ai search provider — direct API and MCP proxy |

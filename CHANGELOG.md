@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added explicit-only Bright Data SERP search with `brightdataApiKey` / `BRIGHTDATA_API_KEY` credentials and a required `brightdataSerpZone` / `BRIGHTDATA_SERP_ZONE` zone of Bright Data type `serp`, engine-side `site:` domain filters and Google `tbs` recency, strict SERP envelope validation that surfaces billed failures instead of empty results, request-time credential sources, ordered routing, and curator selection. Bright Data is never chosen by `auto` and never participates in `provider: "all"`, so installing it never starts spending. Split from #124, 1 of 2. Thanks Moin (`@mo-root`) for PR #124.
+
 ## [0.17.1] - 2026-07-31
 
 ### Fixed
