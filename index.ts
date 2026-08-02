@@ -51,6 +51,7 @@ import { isTavilyAvailable } from "./tavily.ts";
 import { isSerpdiveAvailable } from "./serpdive.ts";
 import { isSearXNGAvailable } from "./searxng.ts";
 import { isAnySearchAvailable } from "./anysearch.ts";
+import { isXaiSearchAvailable } from "./xai-search.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
 import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import {
@@ -101,6 +102,7 @@ function renderSearchErrorPlan(plan: SearchErrorPlan, expanded: boolean, theme: 
 interface WebSearchConfig {
 	anysearchApiKey?: unknown;
 	tinyfishApiKey?: unknown;
+	xaiApiKey?: unknown;
 	provider?: unknown;
 	searchProvider?: unknown;
 	workflow?: string;
@@ -140,6 +142,7 @@ interface ProviderAvailability {
 	exa: boolean;
 	gemini: boolean;
 	anysearch: boolean;
+	xai: boolean;
 }
 
 type WebSearchWorkflow = "none" | "summary-review" | "auto-summary";
@@ -335,9 +338,14 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		exa: isExaAvailable(),
 		gemini: geminiApiAvail || !!geminiWebAvail,
 		anysearch: isAnySearchAvailable(),
+		xai: await isXaiSearchAvailable(ctx),
 	};
 	return {
-		all: Object.entries(providers).some(([provider, available]) => provider !== "anysearch" && provider !== "gemini" && available) || geminiApiAvail,
+		// xai joins anysearch in being explicit-only: its searches are metered
+		// against the signed-in Grok account (roughly a dozen tool calls per
+		// question), so fanning "all" out to it would spend a subscription the
+		// user only meant to chat with.
+		all: Object.entries(providers).some(([provider, available]) => provider !== "anysearch" && provider !== "xai" && provider !== "gemini" && available) || geminiApiAvail,
 		...providers,
 	};
 }
@@ -1532,7 +1540,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, SERPdive, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except AnySearch. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, SERPdive, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
+			`Search the web using OpenAI, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, SERPdive, SearXNG, Exa, Perplexity, Gemini, AnySearch, or xAI. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except AnySearch and xAI. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key; xAI search uses a SuperGrok/X Premium subscription or xAI API key. AnySearch and xAI are available only when explicitly selected — xAI runs the search inside Grok's own inference and is metered against that account. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, SERPdive, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
@@ -1544,7 +1552,7 @@ export default function (pi: ExtensionAPI) {
 				StringEnum(["day", "week", "month", "year"], { description: "Filter by recency" }),
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
-			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; use all to search every eligible provider except AnySearch, omit this field to use the configured provider, or use auto when none is configured")),
+			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; use all to search every eligible provider except AnySearch and xAI, omit this field to use the configured provider, or use auto when none is configured")),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
 					description: "Search workflow mode: none = no curator, summary-review = open curator with auto summary draft (default), auto-summary = generate summary without opening curator",
@@ -2104,7 +2112,7 @@ export default function (pi: ExtensionAPI) {
 			fetchContent: Type.Optional(Type.Boolean({ description: "Fetch up to 5 result pages for exact passage extraction." })),
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
-			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; all searches every eligible provider except AnySearch")),
+			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; all searches every eligible provider except AnySearch and xAI")),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";

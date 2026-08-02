@@ -17,9 +17,10 @@ import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
 import { isSerpdiveAvailable, searchWithSerpdive } from "./serpdive.ts";
 import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
 import { isAnySearchAvailable, searchWithAnySearch } from "./anysearch.ts";
+import { isXaiSearchAvailable, searchWithXai } from "./xai-search.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch"] as const;
+export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch", "xai"] as const;
 export const SEARCH_PROVIDERS = ["auto", "all", ...RESOLVED_SEARCH_PROVIDERS] as const;
 
 export type ResolvedSearchProvider = typeof RESOLVED_SEARCH_PROVIDERS[number];
@@ -294,6 +295,7 @@ async function searchWithResolvedProvider(
 	if (provider === "tavily") return { ...(await searchWithTavily(query, options)), provider };
 	if (provider === "serpdive") return { ...(await searchWithSerpdive(query, options)), provider };
 	if (provider === "anysearch") return { ...(await searchWithAnySearch(query, options)), provider };
+	if (provider === "xai") return { ...(await searchWithXai(query, options, options.extensionContext)), provider };
 	if (provider === "perplexity") return { ...(await searchWithPerplexity(query, options)), provider };
 	if (provider === "searxng") return { ...(await searchWithSearXNG(query, options)), provider };
 	if (provider === "gemini") {
@@ -322,6 +324,7 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "tavily") return isTavilyAvailable();
 	if (provider === "serpdive") return isSerpdiveAvailable();
 	if (provider === "anysearch") return isAnySearchAvailable();
+	if (provider === "xai") return isXaiSearchAvailable(options.extensionContext);
 	if (provider === "perplexity") return isPerplexityAvailable();
 	if (provider === "searxng") return isSearXNGAvailable();
 	if (provider === "gemini") return isGeminiApiAvailable() || !!(await isGeminiWebAvailable());
@@ -336,6 +339,7 @@ function providerLabel(provider: ResolvedSearchProvider): string {
 	if (provider === "querit") return "Querit";
 	if (provider === "serpdive") return "SERPdive";
 	if (provider === "searxng") return "SearXNG";
+	if (provider === "xai") return "xAI";
 	return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
@@ -604,7 +608,7 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TINYFISH_API_KEY, SEARCH1API_KEY, SEARCHINFINITY_API_KEY, QUERIT_API_KEY, TAVILY_API_KEY, SERPDIVE_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
 		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
 		"  5. Sign into gemini.google.com in a supported Chromium-based browser\n" +
-		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch"
+		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch, or \"xai\" to search with a Grok subscription"
 	);
 }
 
