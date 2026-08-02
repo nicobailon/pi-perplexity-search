@@ -202,6 +202,45 @@ test("SearXNG search is SSRF-guarded and preferred first when configured", async
 	assert.equal(output.auto.provider, "searxng");
 });
 
+test("SearXNG search merges configured custom headers", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-searxng-headers-"));
+	const child = runChild(`
+		const { writeFileSync } = await import("node:fs");
+		writeFileSync(${JSON.stringify(home)} + "/web-search.json", JSON.stringify({
+			searxngBaseUrl: "http://127.0.0.1:8443/",
+			searxngHeaders: {
+				"CF-Access-Client-Id": "client-id.access",
+				"CF-Access-Client-Secret": "client-secret",
+				"X-Empty-Skip": 123,
+				"Bad Name": "nope",
+			},
+			ssrf: { allowRanges: ["127.0.0.1"] },
+		}));
+		let capturedHeaders = null;
+		globalThis.fetch = async (_url, init = {}) => {
+			capturedHeaders = init.headers ?? null;
+			return new Response(JSON.stringify({
+				results: [{ title: "Allowed", url: "https://docs.example.com/a", content: "allowed" }],
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+		const { searchWithSearXNG } = await import(${JSON.stringify(searxngModuleUrl)});
+		await searchWithSearXNG("headers");
+		console.log(JSON.stringify({ capturedHeaders }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.deepEqual(output.capturedHeaders, {
+		Accept: "application/json",
+		"CF-Access-Client-Id": "client-id.access",
+		"CF-Access-Client-Secret": "client-secret",
+	});
+});
+
 test("SearXNG redirect validation rejects an unapproved private target", async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-searxng-redirect-"));
 	const child = runChild(`
