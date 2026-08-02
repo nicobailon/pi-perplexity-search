@@ -11,7 +11,7 @@ async function runExtract(config, urls, optionsByUrl = []) {
 	const root = await mkdtemp(join(tmpdir(), "pi-domain-policy-extract-"));
 	await writeFile(join(root, "web-search.json"), JSON.stringify(config), "utf8");
 	const childEnv = { ...process.env, PI_CODING_AGENT_DIR: root, HOME: root, USERPROFILE: root };
-	for (const key of ["GEMINI_API_KEY", "GOOGLE_GEMINI_API_KEY", "GOOGLE_API_KEY", "CLOUDFLARE_API_KEY", "PARALLEL_API_KEY", "TINYFISH_API_KEY", "FIRECRAWL_BASE_URL", "FIRECRAWL_API_KEY"]) delete childEnv[key];
+	for (const key of ["GEMINI_API_KEY", "GOOGLE_GEMINI_API_KEY", "GOOGLE_API_KEY", "CLOUDFLARE_API_KEY", "PARALLEL_API_KEY", "TINYFISH_API_KEY", "FIRECRAWL_BASE_URL", "FIRECRAWL_API_KEY", "BRIGHTDATA_API_KEY", "BRIGHTDATA_UNLOCKER_ZONE"]) delete childEnv[key];
 	const child = spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
 			let fetchCalls = [];

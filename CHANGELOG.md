@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added Bright Data Web Unlocker as a paid `fetch_content` extraction fallback behind a required `brightdataUnlockerZone` / `BRIGHTDATA_UNLOCKER_ZONE` of type `unblocker`, with request-time `brightdataApiKey` / `BRIGHTDATA_API_KEY` credential sources, SSRF preflight of the target URL before any billable request, per-hop redirect validation with cross-origin credential stripping, and thrown diagnostics for paid failures instead of silent nulls. Split from #124, 2 of 2. Thanks Moin (`@mo-root`) for PR #124.
+
 ## [0.17.1] - 2026-07-31
 
 ### Fixed

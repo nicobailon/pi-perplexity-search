@@ -13,6 +13,7 @@ function runChild(script, env = {}) {
 	for (const key of [
 		"PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "FIRECRAWL_BASE_URL", "FIRECRAWL_API_KEY",
 		"FIRECRAWL_API_VERSION", "FIRECRAWL_FRESH_SCRAPE", "PARALLEL_API_KEY", "TINYFISH_API_KEY", "GEMINI_API_KEY",
+		"BRIGHTDATA_API_KEY", "BRIGHTDATA_UNLOCKER_ZONE",
 	]) delete childEnv[key];
 	Object.assign(childEnv, env);
 	return spawnSync(process.execPath, ["--input-type=module"], {

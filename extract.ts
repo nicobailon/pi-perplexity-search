@@ -14,6 +14,7 @@ import { extractWithTinyFish, isTinyFishAvailable } from "./tinyfish.ts";
 import { extractWithSearch1API, isSearch1APIAvailable } from "./search1api.ts";
 import { extractWithQuerit, isQueritAvailable } from "./querit.ts";
 import { extractWithFirecrawl, isFirecrawlAvailable } from "./firecrawl.ts";
+import { extractWithBrightDataUnlocker, isBrightDataUnlockerAvailable } from "./brightdata-unlocker.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { appendDeclaredWebLinks, discoverDeclaredWebLinks, type DeclaredWebLink } from "./declared-web-links.ts";
 import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
@@ -549,6 +550,26 @@ export async function extractContent(
 	}
 	if (signal?.aborted) return abortedResult(url);
 
+	let brightdataError: string | null = null;
+	try {
+		if (isBrightDataUnlockerAvailable()) {
+			const ssrf = loadSsrfConfig();
+			const brightdataResult = await extractWithBrightDataUnlocker(url, signal, {
+				timeoutMs: options?.timeoutMs,
+				...(options?.lookup ? { lookup: options.lookup } : {}),
+				ssrf,
+			});
+			if (brightdataResult) return withDeclaredLinks(brightdataResult);
+		}
+	} catch (err) {
+		if (isAbortError(err)) return abortedResult(url);
+		brightdataError = errorMessage(err);
+		if (isConfigParseError(err)) {
+			return { ...httpResult, error: brightdataError };
+		}
+	}
+	if (signal?.aborted) return abortedResult(url);
+
 	let geminiResult: ExtractedContent | null = null;
 	try {
 		geminiResult = await extractWithUrlContext(url, signal)
@@ -571,6 +592,7 @@ export async function extractContent(
 		...(search1apiError ? [`Search1API fallback failed: ${search1apiError}`] : []),
 		...(queritError ? [`Querit fallback failed: ${queritError}`] : []),
 		...(parallelError ? [`Parallel fallback failed: ${parallelError}`] : []),
+		...(brightdataError ? [`Bright Data fallback failed: ${brightdataError}`] : []),
 		"",
 		"Fallback options:",
 		`  \u2022 Set firecrawlBaseUrl in ${WEB_SEARCH_CONFIG_PATH} to a self-hosted Firecrawl instance`,
@@ -578,6 +600,7 @@ export async function extractContent(
 		`  • Set search1apiApiKey in ${WEB_SEARCH_CONFIG_PATH} or SEARCH1API_KEY`,
 		`  • Set queritApiKey in ${WEB_SEARCH_CONFIG_PATH} or QUERIT_API_KEY`,
 		`  • Set parallelApiKey in ${WEB_SEARCH_CONFIG_PATH} or PARALLEL_API_KEY`,
+		`  • Set brightdataApiKey and brightdataUnlockerZone in ${WEB_SEARCH_CONFIG_PATH} or BRIGHTDATA_API_KEY and BRIGHTDATA_UNLOCKER_ZONE`,
 		`  \u2022 Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
 		"  \u2022 Sign into gemini.google.com in Chrome",
 		"  \u2022 Use web_search to find content about this topic",
