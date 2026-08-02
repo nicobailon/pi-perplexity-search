@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed the `fetch_content` call header showing `fetch (no URL)` when Pi supplied `url` together with an empty `urls` array. Thanks `@Vergil824` for issue #192.
+- Resolve preferred summary and query-rewrite models through routed provider registrations such as OpenRouter, preserving the registered provider and model ID instead of falling back when the native provider is unavailable. Thanks `@robzolkos` for issue #200 and PR #201.
 
 ## [0.17.1] - 2026-07-31
 

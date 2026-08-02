@@ -1,6 +1,6 @@
 import { complete, type Api, type Message, type Model } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
+import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import type { QueryResultData } from "./storage.ts";
 
 const PREFERRED_SUMMARY_MODELS = [
@@ -211,7 +211,7 @@ async function resolveSummaryModelCandidates(
 		if (seen.has(value)) continue;
 		seen.add(value);
 
-		const model = ctx.modelRegistry.find(spec.provider, spec.id);
+		const model = findModelWithProviderRouting(ctx.modelRegistry, spec.provider, spec.id);
 		if (!model) {
 			errors.push(`Summary model not found: ${value}`);
 			continue;

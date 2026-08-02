@@ -9,9 +9,29 @@ interface SummaryModelScopeContext {
 	isProjectTrusted(): boolean;
 }
 
-interface ModelLike {
+export interface ModelLike {
 	provider: string;
 	id: string;
+}
+
+export interface ModelRegistryLike<T extends ModelLike = ModelLike> {
+	find(provider: string, id: string): T | undefined;
+	getAvailable(): readonly T[];
+}
+
+/** Resolve a model through its native provider or a provider that routes that model ID. */
+export function findModelWithProviderRouting<T extends ModelLike>(
+	registry: ModelRegistryLike<T>,
+	provider: string,
+	id: string,
+): T | undefined {
+	const available = registry.getAvailable();
+	const direct = available.find(model => model.provider === provider && model.id === id);
+	if (direct) return direct;
+
+	const routedId = `${provider}/${id}`;
+	const routed = available.find(model => model.id === routedId);
+	return routed ?? registry.find(provider, id);
 }
 
 function getAgentDir(): string {
