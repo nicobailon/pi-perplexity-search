@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 
-import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "../summary-model-scope.ts";
+import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "../summary-model-scope.ts";
 import { generateSummaryDraft, SUMMARY_GENERATION_DEADLINE_MS } from "../summary-review.ts";
 
 const indexSrc = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
@@ -16,6 +16,7 @@ function summaryContext() {
 	return {
 		modelRegistry: {
 			find: () => model,
+			getAvailable: () => [model],
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
 		},
 		cwd: process.cwd(),
@@ -158,6 +159,19 @@ test("summary generation resolves preferred models through routed providers", as
 	assert.equal(result.meta.model, "openrouter/anthropic/claude-haiku-4-5");
 });
 
+test("preferred models resolve through routed providers", () => {
+	const routedModel = { provider: "openrouter", id: "anthropic/claude-haiku-4-5" };
+	const registry = {
+		find: () => undefined,
+		getAvailable: () => [routedModel],
+	};
+
+	assert.equal(
+		findModelWithProviderRouting(registry, "anthropic", "claude-haiku-4-5"),
+		routedModel,
+	);
+});
+
 test("enabledModels loading uses trusted project settings over global settings", async () => {
 	const agentDir = await mkdtemp(join(tmpdir(), "pi-web-access-agent-"));
 	const projectDir = await mkdtemp(join(tmpdir(), "pi-web-access-project-"));
@@ -195,8 +209,8 @@ test("summary generation has a hard deadline and preserves caller cancellation",
 test("summary generation no longer uses catalog fallback or first available model", () => {
 	assert.doesNotMatch(summarySrc, /getModel/);
 	assert.doesNotMatch(indexSrc, /getModel/);
-	assert.match(summarySrc, /ctx\.modelRegistry\.find\(spec\.provider, spec\.id\)/);
-	assert.match(indexSrc, /ctx\.modelRegistry\.find\(provider, id\)/);
+	assert.match(summarySrc, /findModelWithProviderRouting\(ctx\.modelRegistry, spec\.provider, spec\.id\)/);
+	assert.match(indexSrc, /findModelWithProviderRouting\(ctx\.modelRegistry, provider, id\)/);
 	assert.match(summarySrc, /modelMatchesEnabledPatterns\(model, enabledModelPatterns\)/);
 	assert.doesNotMatch(indexSrc, /defaultSummaryModel = summaryModels\[0\]\.value/);
 	assert.match(indexSrc, /modelMatchesEnabledPatterns\(model, enabledModelPatterns\)/);

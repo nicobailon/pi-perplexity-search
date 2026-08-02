@@ -50,7 +50,7 @@ import { isSerpdiveAvailable } from "./serpdive.ts";
 import { isSearXNGAvailable } from "./searxng.ts";
 import { isAnySearchAvailable } from "./anysearch.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
-import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
+import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import {
 	buildResearchArtifact,
 	withClaimAssessment,
@@ -940,7 +940,7 @@ export default function (pi: ExtensionAPI) {
 	): Promise<{ model: Model<Api>; apiKey: string; headers?: Record<string, string> }> {
 		const enabledModelPatterns = loadEnabledModelPatterns(ctx);
 		for (const { provider, id } of candidates) {
-			const model = ctx.modelRegistry.find(provider, id);
+			const model = findModelWithProviderRouting(ctx.modelRegistry, provider, id);
 			if (!model || !modelMatchesEnabledPatterns(model, enabledModelPatterns)) continue;
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 			if (auth.ok && auth.apiKey) return { model, apiKey: auth.apiKey, headers: auth.headers };
@@ -1048,18 +1048,35 @@ export default function (pi: ExtensionAPI) {
 		const config = loadConfig();
 		const configuredSummaryModel = typeof config.summaryModel === "string" ? config.summaryModel.trim() : "";
 		const preferredDefaults = [
-			"anthropic/claude-haiku-4-5",
-			"openai-codex/gpt-5.3-codex-spark",
+			{ provider: "anthropic", id: "claude-haiku-4-5" },
+			{ provider: "openai-codex", id: "gpt-5.3-codex-spark" },
 		];
 
+		const resolveAvailableModelValue = (selector: string): string | null => {
+			const slashIndex = selector.indexOf("/");
+			if (slashIndex <= 0 || slashIndex >= selector.length - 1) return null;
+			const model = findModelWithProviderRouting(
+				summaryContext.modelRegistry,
+				selector.slice(0, slashIndex),
+				selector.slice(slashIndex + 1),
+			);
+			if (!model) return null;
+			const value = `${model.provider}/${model.id}`;
+			return availableValues.has(value) ? value : null;
+		};
+
 		let defaultSummaryModel: string | null = null;
-		if (configuredSummaryModel.length > 0 && availableValues.has(configuredSummaryModel)) {
-			defaultSummaryModel = configuredSummaryModel;
+		if (scopeLoaded && configuredSummaryModel.length > 0) {
+			defaultSummaryModel = availableValues.has(configuredSummaryModel)
+				? configuredSummaryModel
+				: resolveAvailableModelValue(configuredSummaryModel);
 		}
-		if (!defaultSummaryModel) {
+		if (scopeLoaded && !defaultSummaryModel) {
 			for (const preferred of preferredDefaults) {
-				if (availableValues.has(preferred)) {
-					defaultSummaryModel = preferred;
+				const model = findModelWithProviderRouting(summaryContext.modelRegistry, preferred.provider, preferred.id);
+				const value = model ? `${model.provider}/${model.id}` : null;
+				if (value && availableValues.has(value)) {
+					defaultSummaryModel = value;
 					break;
 				}
 			}
