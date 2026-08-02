@@ -33,6 +33,7 @@ const AUTH_MODEL_CANDIDATES = ["grok-4.5", "grok-4.3", "grok-build-0.1"] as cons
 
 interface WebSearchConfig {
 	xaiApiKey?: unknown;
+	xaiSearchModel?: unknown;
 }
 
 interface XaiAuth {
@@ -60,19 +61,27 @@ function loadConfig(): WebSearchConfig {
 	}
 }
 
+function resolveConfiguredSearchModel(value: unknown): string | undefined {
+	if (value == null) return undefined;
+	if (typeof value !== "string" || value.trim().length === 0) {
+		throw new Error(`xaiSearchModel in ${CONFIG_PATH} must be a non-empty string`);
+	}
+	return value.trim();
+}
+
 /**
  * Resolve auth from pi's model registry first, so a Grok subscription pays for
  * its own searches and no api key has to be configured at all. Mirrors how the
  * OpenAI backend picks up a Codex sign-in.
  */
-async function resolvePiAuth(ctx: ExtensionContext): Promise<XaiAuth | undefined> {
+async function resolvePiAuth(ctx: ExtensionContext, modelOverride?: string): Promise<XaiAuth | undefined> {
 	for (const modelId of AUTH_MODEL_CANDIDATES) {
 		try {
 			const model = ctx.modelRegistry.find("xai", modelId);
 			if (!model) continue;
 			const resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 			if (resolved.ok && resolved.apiKey) {
-				return { apiKey: resolved.apiKey, model: modelId, headers: resolved.headers ?? {} };
+				return { apiKey: resolved.apiKey, model: modelOverride ?? modelId, headers: resolved.headers ?? {} };
 			}
 		} catch {
 		}
@@ -81,12 +90,13 @@ async function resolvePiAuth(ctx: ExtensionContext): Promise<XaiAuth | undefined
 }
 
 export async function resolveXaiAuth(ctx?: ExtensionContext, signal?: AbortSignal): Promise<XaiAuth | undefined> {
+	const config = loadConfig();
+	const modelOverride = resolveConfiguredSearchModel(config.xaiSearchModel);
 	if (ctx) {
-		const auth = await resolvePiAuth(ctx);
+		const auth = await resolvePiAuth(ctx, modelOverride);
 		if (auth) return auth;
 	}
 
-	const config = loadConfig();
 	const hasSource = hasCredentialSource({
 		provider: "xAI",
 		configuredValue: config.xaiApiKey,
@@ -99,7 +109,7 @@ export async function resolveXaiAuth(ctx?: ExtensionContext, signal?: AbortSigna
 		environmentValue: process.env.XAI_API_KEY,
 		signal,
 	});
-	return apiKey ? { apiKey, model: AUTH_MODEL_CANDIDATES[0], headers: {} } : undefined;
+	return apiKey ? { apiKey, model: modelOverride ?? AUTH_MODEL_CANDIDATES[0], headers: {} } : undefined;
 }
 
 export async function isXaiSearchAvailable(ctx?: ExtensionContext): Promise<boolean> {
