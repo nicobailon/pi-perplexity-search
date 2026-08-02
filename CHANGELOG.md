@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `fetch_content` can now return the original text response with `mode: "raw"`, which is useful for JSON APIs, error pages, and debugging what a server actually sent.
+- `fetch_content` can now answer a question about a single fetched page with `mode: "answer"`, while still saving the original page text so you can inspect it later.
+- Direct image links now work for PNG, JPEG, WebP, and GIF files. The tool downloads them safely, resizes large images, and returns an inline image result.
+- `get_search_content` now accepts `findText` and `findMode`, so you can search saved content for the passage you need instead of paging through a long page by hand. Inspired by `@xl0`'s `pi-lovely-web` project.
+
+### Changed
+- Long `fetch_content` results are easier to continue reading. The first response now stops on cleaner line boundaries and tells you the character, byte, and line totals plus the exact offset to request next.
+
 ## [0.17.1] - 2026-07-31
 
 ### Fixed

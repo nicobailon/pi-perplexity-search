@@ -6,6 +6,8 @@ export interface FetchContentParams {
 	timestamp?: unknown;
 	frames?: unknown;
 	model?: unknown;
+	mode?: unknown;
+	answerModel?: unknown;
 }
 
 export interface NormalizedFetchContentParams {
@@ -16,6 +18,8 @@ export interface NormalizedFetchContentParams {
 		timestamp?: string;
 		frames?: number;
 		model?: string;
+		mode?: "readable" | "raw" | "answer";
+		answerModel?: string;
 	};
 }
 
@@ -30,6 +34,8 @@ export function normalizeFetchContentParams(params: FetchContentParams): Normali
 
 	const forceClone = typeof params.forceClone === "boolean" ? params.forceClone : undefined;
 	const model = normalizeOptionalString(params.model);
+	const mode = normalizeMode(params.mode);
+	const answerModel = normalizeOptionalString(params.answerModel);
 
 	return {
 		urlList,
@@ -39,6 +45,8 @@ export function normalizeFetchContentParams(params: FetchContentParams): Normali
 			...(timestamp !== undefined ? { timestamp } : {}),
 			...(shouldIncludeFrames ? { frames } : {}),
 			...(model !== undefined ? { model } : {}),
+			...(mode !== undefined ? { mode } : {}),
+			...(answerModel !== undefined ? { answerModel } : {}),
 		},
 	};
 }
@@ -58,6 +66,12 @@ function normalizeOptionalString(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
 	const trimmed = value.trim();
 	return trimmed || undefined;
+}
+
+function normalizeMode(value: unknown): "readable" | "raw" | "answer" | undefined {
+	if (value === undefined) return undefined;
+	if (value === "readable" || value === "raw" || value === "answer") return value;
+	throw new Error('mode must be "readable", "raw", or "answer"');
 }
 
 function normalizeOptionalInteger(value: unknown): number | undefined {

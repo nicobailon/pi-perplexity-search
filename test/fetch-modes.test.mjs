@@ -1,0 +1,34 @@
+import assert from "node:assert/strict";
+import { after, test } from "node:test";
+
+import { extractContent } from "../extract.ts";
+
+const originalFetch = globalThis.fetch;
+after(() => { globalThis.fetch = originalFetch; });
+const lookup = async () => [{ address: "93.184.216.34", family: 4 }];
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+
+test("raw mode returns textual non-2xx bodies but rejects images", async () => {
+	globalThis.fetch = async (url) => String(url).endsWith(".png")
+		? new Response(png, { status: 200, headers: { "content-type": "image/png" } })
+		: new Response('{"error":"missing"}', { status: 404, headers: { "content-type": "application/json; charset=utf-8" } });
+
+	const text = await extractContent("https://example.com/missing", undefined, { mode: "raw", lookup });
+	assert.equal(text.error, null);
+	assert.equal(text.status, 404);
+	assert.equal(text.content, '{"error":"missing"}');
+
+	const image = await extractContent("https://example.com/pixel.png", undefined, { mode: "raw", lookup });
+	assert.match(image.error, /Unsupported content type in raw mode: image\/png/);
+	assert.equal(image.thumbnail, undefined);
+});
+
+test("readable mode returns supported image content", async () => {
+	globalThis.fetch = async () => new Response(png, { status: 200, headers: { "content-type": "image/png" } });
+	const result = await extractContent("https://example.com/pixel.png", undefined, { lookup });
+
+	assert.equal(result.error, null);
+	assert.equal(result.mimeType, "image/png");
+	assert.equal(result.thumbnail?.mimeType, "image/png");
+	assert.match(result.content, /Image fetched \(1×1, image\/png\)/);
+});

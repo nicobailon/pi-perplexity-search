@@ -66,3 +66,11 @@ test("fetch_content params preserve explicit video frame options", () => {
 	assert.equal(normalizeFetchContentParams({ url: "https://youtu.be/demo", frames: 1, timestamp: "1:23" }).options.frames, 1);
 	assert.equal(normalizeFetchContentParams({ url: "https://youtu.be/demo", frames: 2 }).options.frames, 2);
 });
+
+test("fetch_content params validate fetch and answer modes", () => {
+	assert.deepEqual(
+		normalizeFetchContentParams({ mode: "answer", answerModel: " test/page-model " }).options,
+		{ mode: "answer", answerModel: "test/page-model" },
+	);
+	assert.throws(() => normalizeFetchContentParams({ mode: "invalid" }), /mode must be/);
+});

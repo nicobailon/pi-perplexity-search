@@ -97,3 +97,19 @@ test("get_search_content returns small fetched content without continuation nois
 	assert.match(text, /small content/);
 	assert.doesNotMatch(text, /Showing chars/);
 });
+
+test("get_search_content finds bounded passages in stored fetched content", async () => {
+	const tool = getContentTool();
+	storeFetchedContent(`prefix ${"A".repeat(2_000)} Installation requires Node 22. ${"B".repeat(2_000)} suffix`);
+
+	const result = await tool.execute("call", {
+		responseId: "large-fetch",
+		urlIndex: 0,
+		findText: "installation",
+	});
+
+	assert.equal(result.details.matchCount, 1);
+	assert.equal(result.details.findMode, "case-insensitive");
+	assert.match(result.content[0].text, /Installation requires Node 22/);
+	assert.ok(result.content[0].text.length < 1_000);
+});

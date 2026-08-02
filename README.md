@@ -121,7 +121,7 @@ web_search({ queries: ["query 1", "query 2"], workflow: "auto-summary" })
 
 ### fetch_content
 
-Fetch URL(s) and extract readable content as markdown. Automatically detects and handles GitHub repos, YouTube videos, PDFs, local video files, and regular web pages.
+Fetch URL(s) as readable markdown, exact textual HTTP bodies, direct images, or page-grounded answers. Automatically detects and handles GitHub repos, YouTube videos, PDFs, local video files, images, and regular web pages.
 
 ```typescript
 fetch_content({ url: "https://example.com/article" })
@@ -130,25 +130,34 @@ fetch_content({ url: "https://github.com/owner/repo" })
 fetch_content({ url: "https://youtube.com/watch?v=abc", prompt: "What libraries are shown?" })
 fetch_content({ url: "/path/to/recording.mp4", prompt: "What error appears on screen?" })
 fetch_content({ url: "https://youtube.com/watch?v=abc", timestamp: "23:41-25:00", frames: 4 })
+fetch_content({ url: "https://example.com/api", mode: "raw" })
+fetch_content({ url: "https://example.com/guide", mode: "answer", prompt: "What are the installation steps?" })
+fetch_content({ url: "https://example.com/diagram.png" })
 ```
 
 | Parameter | Description |
 |-----------|-------------|
 | `url` / `urls` | Single URL/path or multiple URLs |
-| `prompt` | Question to ask about a YouTube video or local video file |
+| `prompt` | Question for video analysis, or the page-local question required by `mode: "answer"` |
+| `mode` | `readable` (default), `raw` for exact textual HTTP bodies, or `answer` for a grounded answer from fetched content |
+| `answerModel` | Optional `provider/model-id` override for answer mode; defaults to the current enabled Pi model |
 | `timestamp` | Extract frame(s) — single (`"23:41"`), range (`"23:41-25:00"`), or seconds (`"85"`) |
 | `frames` | Number of frames to extract (max 12) |
 | `forceClone` | Clone GitHub repos that exceed the 350MB size threshold |
 
 ### get_search_content
 
-Retrieve stored content from previous searches or fetches. Fetched URL content is stored in full, but `get_search_content` returns bounded slices by default so large pages do not overflow the next model request. Use `offset` and `limit` to page through long content intentionally.
+Retrieve stored content from previous searches or fetches. Fetched URL content is stored in full, including when `fetch_content` uses answer mode. Use `findText` to locate bounded matching passages without paging through a large page, or use `offset` and `limit` to retrieve slices intentionally.
 
 ```typescript
 get_search_content({ responseId: "abc123", urlIndex: 0 })
 get_search_content({ responseId: "abc123", url: "https://...", offset: 30000 })
 get_search_content({ responseId: "abc123", query: "original query" })
+get_search_content({ responseId: "abc123", urlIndex: 0, findText: "installation" })
+get_search_content({ responseId: "abc123", urlIndex: 0, findText: ["timeout", "retry"], findMode: "fuzzy" })
 ```
+
+`findMode` supports `exact`, `case-insensitive` (default), and `fuzzy`. Finder output is capped at 20,000 characters with match counts and nearby context. `findText` cannot be combined with `offset` or `limit`.
 
 ### source_check
 
@@ -205,6 +214,8 @@ Requires `ffmpeg` (and `yt-dlp` for YouTube). Timestamps accept `H:MM:SS`, `MM:S
 PDF URLs are converted to Markdown with Gemini API when configured, with local `unpdf` text extraction as fallback. Markdown is saved under the temporary `pi-web-pdf` directory by default so the agent can `read` specific sections without loading the full document into context. Text-based extraction only — no OCR.
 
 ### Blocked pages
+
+Raw and direct-image HTTP requests use the same SSRF validation, hostname domain policy, redirect checks, timeout, and 5MB streamed response bound as normal extraction. Raw mode returns textual bodies even for non-2xx responses and exposes the HTTP status in tool details; it does not run readability or hosted extraction fallbacks.
 
 When Readability fails or returns only a cookie notice, the extension retries configured Firecrawl extraction first, then Jina Reader (handles JS rendering server-side, no API key needed), TinyFish, Search1API, Parallel, Gemini URL Context API, and Gemini Web extraction when browser cookies are enabled. Firecrawl requests are cache-only by default and require an explicit fresh-scrape opt-in before the Firecrawl server can fetch target URLs. Handles SPAs, JS-heavy pages, and anti-bot protections transparently. Also parses Next.js RSC flight data when present. HTML extraction also surfaces registered discovery relations (`service-desc`, `service-doc`, `service-meta`, `api-catalog`, `describedby`) from the HTTP `Link` header and matching `link`/`a[rel]` markup. Readable or rendered content remains primary; on an empty shell, the normal extraction fallbacks run before declared links are returned on their own.
 
@@ -566,6 +577,8 @@ Rate limits: Perplexity is capped at 10 requests/minute (client-side). TinyFish,
 | `searxng.ts` | Self-hosted SearXNG JSON API search provider |
 | `exa.ts` | Exa.ai search provider — direct API and MCP proxy |
 | `extract.ts` | URL/file path routing, HTTP extraction, fallback orchestration |
+| `content-find.ts` | Bounded exact, case-insensitive, and fuzzy passage lookup |
+| `page-query.ts` | Grounded page-local answer generation with model context budgeting |
 | `gemini-search.ts` | Single-provider, ordered-fallback, and simultaneous all-provider search aggregation |
 | `gemini-url-context.ts` | Gemini URL Context + Web extraction fallbacks |
 | `gemini-web.ts` | Gemini Web client (cookie auth, StreamGenerate) |
