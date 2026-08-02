@@ -129,6 +129,35 @@ test("summary model scope matches nested provider model ids and thinking suffixe
 	);
 });
 
+test("summary generation resolves preferred models through routed providers", async () => {
+	const routedModel = { provider: "openrouter", id: "anthropic/claude-haiku-4-5" };
+	let completeCalled = false;
+	const result = await generateSummaryDraft(
+		summaryResults,
+		{
+			modelRegistry: {
+				find: () => undefined,
+				getAvailable: () => [routedModel],
+				getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
+			},
+			cwd: process.cwd(),
+			isProjectTrusted: () => false,
+		},
+		undefined,
+		undefined,
+		undefined,
+		() => {
+			completeCalled = true;
+			return Promise.resolve({ stopReason: "stop", content: [{ type: "text", text: "Routed summary" }] });
+		},
+		1000,
+	);
+
+	assert.equal(completeCalled, true);
+	assert.equal(result.meta.fallbackUsed, false);
+	assert.equal(result.meta.model, "openrouter/anthropic/claude-haiku-4-5");
+});
+
 test("enabledModels loading uses trusted project settings over global settings", async () => {
 	const agentDir = await mkdtemp(join(tmpdir(), "pi-web-access-agent-"));
 	const projectDir = await mkdtemp(join(tmpdir(), "pi-web-access-project-"));
