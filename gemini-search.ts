@@ -257,7 +257,7 @@ function classifyProviderError(provider: ResolvedSearchProvider, err: unknown): 
 		kind = "credential";
 	} else if (isAbortError(err)) {
 		kind = "aborted";
-	} else if (provider === "xai" && status === 403 && /spending[- ]limit|out of credits|insufficient quota|quota exceeded/.test(lower)) {
+	} else if (provider === "xai" && status === 403 && /spending[- ]limit|(?:no|out of) credits?|insufficient quota|quota (?:exceeded|exhausted)|credits? (?:exhausted|depleted|used up)/.test(lower)) {
 		kind = "quota";
 	} else if (status === 401 || status === 403) {
 		kind = "auth";

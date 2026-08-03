@@ -121,7 +121,7 @@ test("auth status fails closed even when the response text looks like quota", as
 	assert.deepEqual(output.calls, ["https://api.search.brave.com/res/v1/web/search?q=auth+route&count=5"]);
 });
 
-test("configured routing falls back from an xAI 403 quota response", async () => {
+test("configured routing falls back from an xAI 403 quota-exhausted response", async () => {
 	const home = await createConfig({
 		searchRouting: { providers: ["xai", "tavily"], fallbackOn: ["quota"] },
 	});
@@ -129,7 +129,7 @@ test("configured routing falls back from an xAI 403 quota response", async () =>
 		const calls = [];
 		globalThis.fetch = async (url) => {
 			calls.push(String(url));
-			if (String(url) === "https://api.x.ai/v1/responses") return new Response("spending limit exceeded", { status: 403 });
+			if (String(url) === "https://api.x.ai/v1/responses") return new Response("quota exhausted", { status: 403 });
 			if (String(url) === "https://api.tavily.com/search") {
 				return new Response(JSON.stringify({ answer: "Tavily fallback answer", results: [] }), { status: 200 });
 			}
