@@ -160,9 +160,17 @@ interface ParsedCidr {
 	prefix: number;
 }
 
+interface RedirectRequestInitArgs {
+	from: URL;
+	to: URL;
+	init: RequestInit;
+	response: Response;
+}
+
 interface FetchRemoteOptions extends ValidationOptions {
 	fetch?: Fetch;
 	maxRedirects?: number;
+	onRedirect?: (args: RedirectRequestInitArgs) => RequestInit;
 }
 
 async function defaultLookup(hostname: string): Promise<LookupAddress[]> {
@@ -224,11 +232,13 @@ export async function fetchRemoteUrl(
 		if (!location) return response;
 		if (redirects === maxRedirects) throw new Error(`Too many redirects fetching ${current.toString()}`);
 
+		const from = current;
 		current = await validateRemoteUrl(new URL(location, current), options);
 		if (response.status === 303 || ((response.status === 301 || response.status === 302) && requestInit.method?.toUpperCase() === "POST")) {
 			const { body: _body, ...nextInit } = requestInit;
 			requestInit = { ...nextInit, method: "GET" };
 		}
+		if (options.onRedirect) requestInit = options.onRedirect({ from, to: current, init: requestInit, response });
 	}
 
 	throw new Error(`Too many redirects fetching ${current.toString()}`);

@@ -212,6 +212,7 @@ test("SearXNG search merges configured custom headers", async () => {
 				"CF-Access-Client-Id": "client-id.access",
 				"CF-Access-Client-Secret": "client-secret",
 				"X-Empty-Skip": 123,
+				"X-Bad-Value": "bad\\r\\nvalue",
 				"Bad Name": "nope",
 			},
 			ssrf: { allowRanges: ["127.0.0.1"] },
@@ -239,6 +240,72 @@ test("SearXNG search merges configured custom headers", async () => {
 		"CF-Access-Client-Id": "client-id.access",
 		"CF-Access-Client-Secret": "client-secret",
 	});
+
+	const overrideHome = await mkdtemp(join(tmpdir(), "pi-web-access-searxng-headers-override-"));
+	const overrideChild = runChild(`
+		const { writeFileSync } = await import("node:fs");
+		writeFileSync(${JSON.stringify(overrideHome)} + "/web-search.json", JSON.stringify({
+			searxngBaseUrl: "http://127.0.0.1:8443/",
+			searxngHeaders: { accept: "application/custom-json" },
+			ssrf: { allowRanges: ["127.0.0.1"] },
+		}));
+		let capturedHeaders = null;
+		globalThis.fetch = async (_url, init = {}) => {
+			capturedHeaders = init.headers ?? null;
+			return new Response(JSON.stringify({ results: [] }), { status: 200, headers: { "content-type": "application/json" } });
+		};
+		const { searchWithSearXNG } = await import(${JSON.stringify(searxngModuleUrl)});
+		await searchWithSearXNG("headers");
+		console.log(JSON.stringify({ capturedHeaders }));
+	`, {
+		HOME: overrideHome,
+		USERPROFILE: overrideHome,
+		PI_CODING_AGENT_DIR: overrideHome,
+	});
+
+	assert.equal(overrideChild.status, 0, overrideChild.stderr);
+	assert.deepEqual(JSON.parse(overrideChild.stdout.trim()).capturedHeaders, { accept: "application/custom-json" });
+});
+
+test("SearXNG search strips configured headers on cross-origin redirects", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-searxng-headers-redirect-"));
+	const child = runChild(`
+		const { writeFileSync } = await import("node:fs");
+		writeFileSync(${JSON.stringify(home)} + "/web-search.json", JSON.stringify({
+			searxngBaseUrl: "http://127.0.0.1:8443/",
+			searxngHeaders: {
+				"CF-Access-Client-Id": "client-id.access",
+				"CF-Access-Client-Secret": "client-secret",
+			},
+			ssrf: { allowRanges: ["127.0.0.1"] },
+		}));
+		const calls = [];
+		globalThis.fetch = async (url, init = {}) => {
+			calls.push({ url: String(url), headers: init.headers ?? null });
+			if (calls.length === 1) {
+				return new Response(null, { status: 302, headers: { location: "http://127.0.0.1:8444/search" } });
+			}
+			return new Response(JSON.stringify({
+				results: [{ title: "Allowed", url: "https://docs.example.com/a", content: "allowed" }],
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+		const { searchWithSearXNG } = await import(${JSON.stringify(searxngModuleUrl)});
+		await searchWithSearXNG("headers redirect");
+		console.log(JSON.stringify({ calls }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.deepEqual(output.calls[0].headers, {
+		Accept: "application/json",
+		"CF-Access-Client-Id": "client-id.access",
+		"CF-Access-Client-Secret": "client-secret",
+	});
+	assert.deepEqual(output.calls[1].headers, { Accept: "application/json" });
 });
 
 test("SearXNG redirect validation rejects an unapproved private target", async () => {

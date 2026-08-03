@@ -71,6 +71,15 @@ function getBaseUrl(): string | null {
 		: normalizeBaseUrl(loadConfig().searxngBaseUrl);
 }
 
+function isValidHeaderValue(value: string): boolean {
+	try {
+		new Headers({ "x-pi-web-access-validation": value });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function normalizeHeaders(value: unknown): Record<string, string> {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
 	const headers: Record<string, string> = {};
@@ -79,6 +88,7 @@ function normalizeHeaders(value: unknown): Record<string, string> {
 		const name = key.trim();
 		// RFC 7230 token chars only — reject empty or malformed header names.
 		if (!name || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) continue;
+		if (!isValidHeaderValue(headerValue)) continue;
 		headers[name] = headerValue;
 	}
 	return headers;
@@ -86,6 +96,17 @@ function normalizeHeaders(value: unknown): Record<string, string> {
 
 function getConfiguredHeaders(): Record<string, string> {
 	return normalizeHeaders(loadConfig().searxngHeaders);
+}
+
+function mergeDefaultHeaders(configured: Record<string, string>): Record<string, string> {
+	const headers: Record<string, string> = { Accept: "application/json" };
+	for (const [name, value] of Object.entries(configured)) {
+		for (const existing of Object.keys(headers)) {
+			if (existing.toLowerCase() === name.toLowerCase()) delete headers[existing];
+		}
+		headers[name] = value;
+	}
+	return headers;
 }
 
 function requireBaseUrl(): string {
@@ -184,13 +205,17 @@ export async function searchWithSearXNG(query: string, options: SearchOptions = 
 	const activityId = activityMonitor.logStart({ type: "api", query: searchQuery });
 
 	try {
+		const headers = mergeDefaultHeaders(getConfiguredHeaders());
 		const response = await fetchRemoteUrl(url, {
 			method: "GET",
-			headers: { Accept: "application/json", ...getConfiguredHeaders() },
+			headers,
 			signal: options.signal
 				? AbortSignal.any([AbortSignal.timeout(SEARCH_TIMEOUT_MS), options.signal])
 				: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
-		}, loadSsrfConfig());
+		}, {
+			...loadSsrfConfig(),
+			onRedirect: ({ from, to, init }) => from.origin === to.origin ? init : { ...init, headers: { Accept: "application/json" } },
+		});
 
 		if (!response.ok) {
 			activityMonitor.logError(activityId, `HTTP ${response.status}`);
