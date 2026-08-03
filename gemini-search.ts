@@ -15,13 +15,16 @@ import { isSearchinfinityAvailable, searchWithSearchinfinity } from "./searchinf
 import { isQueritAvailable, searchWithQuerit } from "./querit.ts";
 import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
 import { isSerpdiveAvailable, searchWithSerpdive } from "./serpdive.ts";
+import { isKagiAvailable, searchWithKagi } from "./kagi.ts";
+import { isOllamaAvailable, searchWithOllama } from "./ollama.ts";
 import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
 import { isAnySearchAvailable, searchWithAnySearch } from "./anysearch.ts";
 import { isXaiSearchAvailable, searchWithXai } from "./xai-search.ts";
 import { isBrightDataAvailable, searchWithBrightData } from "./brightdata.ts";
+import { isSerpBaseAvailable, searchWithSerpBase } from "./serpbase.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch", "xai", "brightdata"] as const;
+export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "kagi", "ollama", "anysearch", "xai", "brightdata", "serpbase"] as const;
 export const SEARCH_PROVIDERS = ["auto", "all", ...RESOLVED_SEARCH_PROVIDERS] as const;
 
 export type ResolvedSearchProvider = typeof RESOLVED_SEARCH_PROVIDERS[number];
@@ -83,9 +86,9 @@ export interface AttributedSearchResponse extends SearchResponse {
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
-// Explicit-only providers (anysearch, brightdata) are deliberately absent: `all`
-// must never fan out to a provider that bills the user without them asking for it.
-const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "serpdive", "perplexity", "gemini"];
+// Explicit-only providers (AnySearch, xAI, Bright Data, SerpBase) are deliberately absent:
+// `all` must never fan out to a paid/surprising provider without the user asking for it.
+const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "serpdive", "kagi", "ollama", "perplexity", "gemini"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network"] as const;
 
 type SearchConfig = {
@@ -297,9 +300,12 @@ async function searchWithResolvedProvider(
 	if (provider === "querit") return { ...(await searchWithQuerit(query, options)), provider };
 	if (provider === "tavily") return { ...(await searchWithTavily(query, options)), provider };
 	if (provider === "serpdive") return { ...(await searchWithSerpdive(query, options)), provider };
+	if (provider === "kagi") return { ...(await searchWithKagi(query, options)), provider };
+	if (provider === "ollama") return { ...(await searchWithOllama(query, options)), provider };
 	if (provider === "anysearch") return { ...(await searchWithAnySearch(query, options)), provider };
 	if (provider === "xai") return { ...(await searchWithXai(query, options, options.extensionContext)), provider };
 	if (provider === "brightdata") return { ...(await searchWithBrightData(query, options)), provider };
+	if (provider === "serpbase") return { ...(await searchWithSerpBase(query, options)), provider };
 	if (provider === "perplexity") return { ...(await searchWithPerplexity(query, options)), provider };
 	if (provider === "searxng") return { ...(await searchWithSearXNG(query, options)), provider };
 	if (provider === "gemini") {
@@ -327,9 +333,12 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "querit") return isQueritAvailable();
 	if (provider === "tavily") return isTavilyAvailable();
 	if (provider === "serpdive") return isSerpdiveAvailable();
+	if (provider === "kagi") return isKagiAvailable();
+	if (provider === "ollama") return isOllamaAvailable();
 	if (provider === "anysearch") return isAnySearchAvailable();
 	if (provider === "xai") return isXaiSearchAvailable(options.extensionContext);
 	if (provider === "brightdata") return isBrightDataAvailable();
+	if (provider === "serpbase") return isSerpBaseAvailable();
 	if (provider === "perplexity") return isPerplexityAvailable();
 	if (provider === "searxng") return isSearXNGAvailable();
 	if (provider === "gemini") return isGeminiApiAvailable() || !!(await isGeminiWebAvailable());
@@ -344,8 +353,11 @@ function providerLabel(provider: ResolvedSearchProvider): string {
 	if (provider === "querit") return "Querit";
 	if (provider === "serpdive") return "SERPdive";
 	if (provider === "searxng") return "SearXNG";
+	if (provider === "kagi") return "Kagi";
+	if (provider === "ollama") return "Ollama";
 	if (provider === "xai") return "xAI";
 	if (provider === "brightdata") return "Bright Data";
+	if (provider === "serpbase") return "SerpBase";
 	return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
@@ -372,8 +384,7 @@ async function searchWithProviders(
 			: await isResolvedProviderAvailable(provider, options),
 	})))).filter((entry) => entry.available).map((entry) => entry.provider);
 	if (providers.length === 0) {
-		throw new Error("No configured search provider available for provider \"all\". AnySearch and xAI are excluded.");
-		throw new Error("No configured search provider available for provider \"all\". AnySearch and Bright Data are excluded.");
+		throw new Error("No configured search provider available for provider \"all\". AnySearch, xAI, Bright Data, and SerpBase are excluded.");
 	}
 
 	const settled = await Promise.allSettled(
@@ -586,6 +597,26 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		}
 	}
 
+	if (isKagiAvailable()) {
+		try {
+			const result = await searchWithKagi(query, options);
+			return { ...result, provider: "kagi" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`Kagi: ${errorMessage(err)}`);
+		}
+	}
+
+	if (isOllamaAvailable()) {
+		try {
+			const result = await searchWithOllama(query, options);
+			return { ...result, provider: "ollama" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`Ollama: ${errorMessage(err)}`);
+		}
+	}
+
 	if (isPerplexityAvailable()) {
 		try {
 			const result = await searchWithPerplexity(query, options);
@@ -611,11 +642,11 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	throw new Error(
 		"No search provider available. Either:\n" +
 		"  1. Use /login to sign in with a Codex subscription for OpenAI web search\n" +
-		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tinyfishApiKey, search1apiApiKey, searchinfinityApiKey, queritApiKey, tavilyApiKey, serpdiveApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
-		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TINYFISH_API_KEY, SEARCH1API_KEY, SEARCHINFINITY_API_KEY, QUERIT_API_KEY, TAVILY_API_KEY, SERPDIVE_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
+		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tinyfishApiKey, search1apiApiKey, searchinfinityApiKey, queritApiKey, tavilyApiKey, serpdiveApiKey, kagiApiKey, ollamaApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
+		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TINYFISH_API_KEY, SEARCH1API_KEY, SEARCHINFINITY_API_KEY, QUERIT_API_KEY, TAVILY_API_KEY, SERPDIVE_API_KEY, KAGI_API_KEY, OLLAMA_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
 		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
 		"  5. Sign into gemini.google.com in a supported Chromium-based browser\n" +
-		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch, \"xai\" for Grok, or \"brightdata\" with brightdataSerpZone for paid Bright Data SERP"
+		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch, \"xai\" for Grok, \"brightdata\" with brightdataSerpZone for paid Bright Data SERP, or \"serpbase\" with serpbaseApiKey for paid Google SERP"
 	);
 }
 

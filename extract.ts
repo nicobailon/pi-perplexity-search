@@ -14,6 +14,8 @@ import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
 import { extractWithTinyFish, isTinyFishAvailable } from "./tinyfish.ts";
 import { extractWithSearch1API, isSearch1APIAvailable } from "./search1api.ts";
 import { extractWithQuerit, isQueritAvailable } from "./querit.ts";
+import { extractWithKagi, isKagiExtractAvailable } from "./kagi.ts";
+import { extractWithOllama, isOllamaFetchAvailable } from "./ollama.ts";
 import { extractWithFirecrawl, isFirecrawlAvailable } from "./firecrawl.ts";
 import { extractWithBrightDataUnlocker, isBrightDataUnlockerAvailable } from "./brightdata-unlocker.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
@@ -545,6 +547,46 @@ export async function extractContent(
 	}
 	if (signal?.aborted) return abortedResult(url);
 
+	let kagiError: string | null = null;
+	try {
+		if (isKagiExtractAvailable()) {
+			const ssrf = loadSsrfConfig();
+			const kagiResult = await extractWithKagi(url, signal, {
+				timeoutMs: options?.timeoutMs,
+				...(options?.lookup ? { lookup: options.lookup } : {}),
+				ssrf,
+			});
+			if (kagiResult) return withDeclaredLinks(kagiResult);
+		}
+	} catch (err) {
+		if (isAbortError(err)) return abortedResult(url);
+		kagiError = errorMessage(err);
+		if (isConfigParseError(err)) {
+			return { ...httpResult, error: kagiError };
+		}
+	}
+	if (signal?.aborted) return abortedResult(url);
+
+	let ollamaError: string | null = null;
+	try {
+		if (isOllamaFetchAvailable()) {
+			const ssrf = loadSsrfConfig();
+			const ollamaResult = await extractWithOllama(url, signal, {
+				timeoutMs: options?.timeoutMs,
+				...(options?.lookup ? { lookup: options.lookup } : {}),
+				ssrf,
+			});
+			if (ollamaResult) return withDeclaredLinks(ollamaResult);
+		}
+	} catch (err) {
+		if (isAbortError(err)) return abortedResult(url);
+		ollamaError = errorMessage(err);
+		if (isConfigParseError(err)) {
+			return { ...httpResult, error: ollamaError };
+		}
+	}
+	if (signal?.aborted) return abortedResult(url);
+
 	let parallelError: string | null = null;
 	try {
 		if (isParallelAvailable()) {
@@ -601,6 +643,8 @@ export async function extractContent(
 		...(tinyfishError ? [`TinyFish fallback failed: ${tinyfishError}`] : []),
 		...(search1apiError ? [`Search1API fallback failed: ${search1apiError}`] : []),
 		...(queritError ? [`Querit fallback failed: ${queritError}`] : []),
+		...(kagiError ? [`Kagi fallback failed: ${kagiError}`] : []),
+		...(ollamaError ? [`Ollama fallback failed: ${ollamaError}`] : []),
 		...(parallelError ? [`Parallel fallback failed: ${parallelError}`] : []),
 		...(brightdataError ? [`Bright Data fallback failed: ${brightdataError}`] : []),
 		"",
@@ -609,6 +653,8 @@ export async function extractContent(
 		`  • Set tinyfishApiKey in ${WEB_SEARCH_CONFIG_PATH} or TINYFISH_API_KEY`,
 		`  • Set search1apiApiKey in ${WEB_SEARCH_CONFIG_PATH} or SEARCH1API_KEY`,
 		`  • Set queritApiKey in ${WEB_SEARCH_CONFIG_PATH} or QUERIT_API_KEY`,
+		`  • Set kagiApiKey in ${WEB_SEARCH_CONFIG_PATH} or KAGI_API_KEY`,
+		`  • Set ollamaApiKey in ${WEB_SEARCH_CONFIG_PATH} or OLLAMA_API_KEY`,
 		`  • Set parallelApiKey in ${WEB_SEARCH_CONFIG_PATH} or PARALLEL_API_KEY`,
 		`  • Set brightdataApiKey and brightdataUnlockerZone in ${WEB_SEARCH_CONFIG_PATH} or BRIGHTDATA_API_KEY and BRIGHTDATA_UNLOCKER_ZONE`,
 		`  \u2022 Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,

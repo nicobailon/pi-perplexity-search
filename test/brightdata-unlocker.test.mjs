@@ -20,7 +20,7 @@ const EMPTY_HOME = mkdtempSync(join(tmpdir(), "pi-web-access-brightdata-empty-ho
 function runChild(script, env = {}) {
 	const childEnv = { ...process.env, HOME: EMPTY_HOME, USERPROFILE: EMPTY_HOME };
 	for (const key of [
-		"PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "BRIGHTDATA_API_KEY", "BRIGHTDATA_UNLOCKER_ZONE",
+		"PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "BRIGHTDATA_API_KEY", "KAGI_API_KEY", "OLLAMA_API_KEY", "BRIGHTDATA_UNLOCKER_ZONE",
 		"BRIGHTDATA_SERP_ZONE", "FIRECRAWL_BASE_URL", "FIRECRAWL_API_KEY", "PARALLEL_API_KEY",
 		"TINYFISH_API_KEY", "GEMINI_API_KEY",
 	]) delete childEnv[key];

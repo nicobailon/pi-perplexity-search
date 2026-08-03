@@ -8,7 +8,7 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean },
+	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; kagi: boolean; ollama: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean },
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
@@ -24,12 +24,15 @@ function buildProviderButtons(
 		{ value: "querit", label: "Querit", available: available.querit },
 		{ value: "tavily", label: "Tavily", available: available.tavily },
 		{ value: "serpdive", label: "SERPdive", available: available.serpdive },
+		{ value: "kagi", label: "Kagi", available: available.kagi },
+		{ value: "ollama", label: "Ollama", available: available.ollama },
 		{ value: "searxng", label: "SearXNG", available: available.searxng },
 		{ value: "perplexity", label: "Perplexity", available: available.perplexity },
 		{ value: "gemini", label: "Gemini", available: available.gemini },
 		{ value: "anysearch", label: "AnySearch", available: available.anysearch },
 		{ value: "xai", label: "xAI", available: available.xai },
 		{ value: "brightdata", label: "Bright Data", available: available.brightdata },
+		{ value: "serpbase", label: "SerpBase", available: available.serpbase },
 	];
 
 	return providers
@@ -48,7 +51,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean },
+	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; kagi: boolean; ollama: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean },
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
@@ -1444,8 +1447,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "serpdive", "searxng", "perplexity", "gemini", "anysearch", "xai"];
-  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "serpdive", "searxng", "perplexity", "gemini", "anysearch", "brightdata"];
+  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "serpdive", "kagi", "ollama", "searxng", "perplexity", "gemini", "anysearch", "xai", "brightdata", "serpbase"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1655,6 +1657,8 @@ const SCRIPT = `(function() {
     if (provider === "querit") return "Querit";
     if (provider === "tavily") return "Tavily";
     if (provider === "serpdive") return "SERPdive";
+    if (provider === "kagi") return "Kagi";
+    if (provider === "ollama") return "Ollama";
     if (provider === "searxng") return "SearXNG";
     if (provider === "perplexity") return "Perplexity";
     if (provider === "exa") return "Exa";
@@ -1662,6 +1666,7 @@ const SCRIPT = `(function() {
     if (provider === "anysearch") return "AnySearch";
     if (provider === "xai") return "xAI";
     if (provider === "brightdata") return "Bright Data";
+    if (provider === "serpbase") return "SerpBase";
     return "Unknown";
   }
 

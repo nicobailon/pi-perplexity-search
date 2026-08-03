@@ -9,7 +9,7 @@ const serpdiveModuleUrl = new URL("../serpdive.ts", import.meta.url).href;
 
 function runChild(script, env) {
 	const childEnv = { ...process.env };
-	for (const key of ["PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "SERPDIVE_API_KEY", "SERPDIVE_MODEL"]) {
+	for (const key of ["PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "SERPDIVE_API_KEY", "KAGI_API_KEY", "OLLAMA_API_KEY", "SERPBASE_API_KEY", "SERPDIVE_MODEL"]) {
 		delete childEnv[key];
 	}
 	Object.assign(childEnv, env);
