@@ -7,6 +7,7 @@ import { test } from "node:test";
 
 const xaiModuleUrl = new URL("../xai-search.ts", import.meta.url).href;
 const searchModuleUrl = new URL("../gemini-search.ts", import.meta.url).href;
+const curatorPageModuleUrl = new URL("../curator-page.ts", import.meta.url).href;
 
 async function createHome(config) {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-xai-"));
@@ -228,6 +229,40 @@ test("xAI HTTP errors redact the credential", async () => {
 	const output = JSON.parse(child.stdout.trim());
 	assert.doesNotMatch(output.error, /xai-secret/);
 	assert.match(output.error, /\[redacted\]/);
+});
+
+test("curator page exposes xAI as a manual provider", async () => {
+	const { generateCuratorPage } = await import(curatorPageModuleUrl);
+	const page = generateCuratorPage(
+		["query"],
+		"token",
+		20,
+		{
+			all: false,
+			openai: false,
+			brave: false,
+			parallel: false,
+			tinyfish: false,
+			search1api: false,
+			searchinfinity: false,
+			querit: false,
+			tavily: false,
+			serpdive: false,
+			searxng: false,
+			perplexity: false,
+			exa: false,
+			gemini: false,
+			anysearch: false,
+			xai: true,
+		},
+		"xai",
+		"xai",
+		[],
+		null,
+	);
+
+	assert.match(page, />xAI<\/button>/);
+	assert.match(page, /"xai":true/);
 });
 
 test("xAI answers with no answer text and no sources fail loudly", async () => {

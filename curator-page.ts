@@ -8,7 +8,7 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean },
+	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean },
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
@@ -28,6 +28,7 @@ function buildProviderButtons(
 		{ value: "perplexity", label: "Perplexity", available: available.perplexity },
 		{ value: "gemini", label: "Gemini", available: available.gemini },
 		{ value: "anysearch", label: "AnySearch", available: available.anysearch },
+		{ value: "xai", label: "xAI", available: available.xai },
 	];
 
 	return providers
@@ -46,7 +47,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean },
+	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean },
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
@@ -663,6 +664,11 @@ main {
   color: #f9c74f;
   background: rgba(249, 199, 79, 0.14);
   border-color: rgba(249, 199, 79, 0.3);
+}
+.provider-tag.provider-xai {
+  color: #c4b5fd;
+  background: rgba(196, 181, 253, 0.14);
+  border-color: rgba(196, 181, 253, 0.3);
 }
 .provider-tag.provider-openai {
   color: #a6e3a1;
@@ -1432,7 +1438,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "serpdive", "searxng", "perplexity", "gemini", "anysearch"];
+  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "serpdive", "searxng", "perplexity", "gemini", "anysearch", "xai"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1647,6 +1653,7 @@ const SCRIPT = `(function() {
     if (provider === "exa") return "Exa";
     if (provider === "gemini") return "Gemini";
     if (provider === "anysearch") return "AnySearch";
+    if (provider === "xai") return "xAI";
     return "Unknown";
   }
 

@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Direct image links now work for PNG, JPEG, WebP, and GIF files. The tool downloads them safely, resizes large images, and returns an inline image result.
 - `get_search_content` now accepts `findText` and `findMode`, so you can search saved content for the passage you need instead of paging through a long page by hand. Inspired by `@xl0`'s `pi-lovely-web` project.
 - Added optional `searxngHeaders` so self-hosted SearXNG requests can carry reverse-proxy or Zero Trust auth headers. Thanks `@preinpost` for PR #202.
+- Added explicit-only xAI/Grok search with `xaiApiKey` / `XAI_API_KEY`, Pi model-registry auth, and optional `xaiSearchModel`. Thanks `@join3r` for PR #196.
 
 ### Changed
 - Long `fetch_content` results are easier to continue reading. The first response now stops on cleaner line boundaries and tells you the character, byte, and line totals plus the exact offset to request next.

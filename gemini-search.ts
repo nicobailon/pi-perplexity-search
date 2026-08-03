@@ -366,7 +366,7 @@ async function searchWithProviders(
 			: await isResolvedProviderAvailable(provider, options),
 	})))).filter((entry) => entry.available).map((entry) => entry.provider);
 	if (providers.length === 0) {
-		throw new Error("No configured search provider available for provider \"all\". AnySearch is excluded.");
+		throw new Error("No configured search provider available for provider \"all\". AnySearch and xAI are excluded.");
 	}
 
 	const settled = await Promise.allSettled(
