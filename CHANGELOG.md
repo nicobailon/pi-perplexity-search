@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Long `fetch_content` results are easier to continue reading. The first response now stops on cleaner line boundaries and tells you the character, byte, and line totals plus the exact offset to request next.
 
+### Fixed
+- Fixed the `fetch_content` call header showing `fetch (no URL)` when Pi supplied `url` together with an empty `urls` array. Thanks `@Vergil824` for issue #192.
+
 ## [0.17.1] - 2026-07-31
 
 ### Fixed

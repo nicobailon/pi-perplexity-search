@@ -2355,8 +2355,8 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme) {
-			const { url, urls, prompt, timestamp, frames, model, mode, answerModel } = args as { url?: string; urls?: string[]; prompt?: string; timestamp?: string; frames?: number; model?: string; mode?: "readable" | "raw" | "answer"; answerModel?: string };
-			const urlList = urls ?? (url ? [url] : []);
+			const { urlList, options } = normalizeFetchContentParams(args);
+			const { prompt, timestamp, frames, model, mode, answerModel } = options;
 			if (urlList.length === 0) {
 				return new Text(theme.fg("toolTitle", theme.bold("fetch ")) + theme.fg("error", "(no URL)"), 0, 0);
 			}
