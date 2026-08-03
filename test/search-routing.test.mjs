@@ -15,7 +15,7 @@ async function createConfig(config) {
 
 function runChild(script, env) {
 	const childEnv = { ...process.env };
-	for (const key of ["PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "OPENAI_API_KEY", "BRAVE_API_KEY", "PARALLEL_API_KEY", "TINYFISH_API_KEY", "SEARCH1API_KEY", "SEARCHINFINITY_API_KEY", "QUERIT_API_KEY", "TAVILY_API_KEY", "SERPDIVE_API_KEY", "KAGI_API_KEY", "OLLAMA_API_KEY", "SERPBASE_API_KEY", "BRIGHTDATA_API_KEY", "BRIGHTDATA_SERP_ZONE", "SEARXNG_BASE_URL", "EXA_API_KEY", "PERPLEXITY_API_KEY", "GEMINI_API_KEY"]) {
+	for (const key of ["PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "OPENAI_API_KEY", "BRAVE_API_KEY", "PARALLEL_API_KEY", "TINYFISH_API_KEY", "SEARCH1API_KEY", "SEARCHINFINITY_API_KEY", "QUERIT_API_KEY", "TAVILY_API_KEY", "SERPDIVE_API_KEY", "KAGI_API_KEY", "OLLAMA_API_KEY", "SERPBASE_API_KEY", "XAI_API_KEY", "BRIGHTDATA_API_KEY", "BRIGHTDATA_SERP_ZONE", "SEARXNG_BASE_URL", "EXA_API_KEY", "PERPLEXITY_API_KEY", "GEMINI_API_KEY"]) {
 		delete childEnv[key];
 	}
 	Object.assign(childEnv, env);
@@ -119,6 +119,68 @@ test("auth status fails closed even when the response text looks like quota", as
 	assert.equal(output.ok, false);
 	assert.match(output.error, /brave search failed \(auth\)/);
 	assert.deepEqual(output.calls, ["https://api.search.brave.com/res/v1/web/search?q=auth+route&count=5"]);
+});
+
+test("configured routing falls back from an xAI 403 quota response", async () => {
+	const home = await createConfig({
+		searchRouting: { providers: ["xai", "tavily"], fallbackOn: ["quota"] },
+	});
+	const child = runChild(`
+		const calls = [];
+		globalThis.fetch = async (url) => {
+			calls.push(String(url));
+			if (String(url) === "https://api.x.ai/v1/responses") return new Response("spending limit exceeded", { status: 403 });
+			if (String(url) === "https://api.tavily.com/search") {
+				return new Response(JSON.stringify({ answer: "Tavily fallback answer", results: [] }), { status: 200 });
+			}
+			throw new Error("Unexpected fetch " + url);
+		};
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("xai quota route", { provider: "auto" });
+		console.log(JSON.stringify({ provider: result.provider, answer: result.answer, calls }));
+	`, {
+		PI_CODING_AGENT_DIR: home,
+		XAI_API_KEY: "xai-test-key",
+		TAVILY_API_KEY: "tavily-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.provider, "tavily");
+	assert.equal(output.answer, "Tavily fallback answer");
+	assert.deepEqual(output.calls, ["https://api.x.ai/v1/responses", "https://api.tavily.com/search"]);
+});
+
+test("configured routing keeps an ordinary xAI 403 response classified as auth", async () => {
+	const home = await createConfig({
+		searchRouting: { providers: ["xai", "tavily"], fallbackOn: ["quota"] },
+	});
+	const child = runChild(`
+		const calls = [];
+		globalThis.fetch = async (url) => {
+			calls.push(String(url));
+			if (String(url) === "https://api.x.ai/v1/responses") return new Response("invalid API key", { status: 403 });
+			if (String(url) === "https://api.tavily.com/search") throw new Error("Tavily must not run");
+			throw new Error("Unexpected fetch " + url);
+		};
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		try {
+			await search("xai auth route", { provider: "auto" });
+			console.log(JSON.stringify({ ok: true, calls }));
+		} catch (error) {
+			console.log(JSON.stringify({ ok: false, error: String(error), calls }));
+		}
+	`, {
+		PI_CODING_AGENT_DIR: home,
+		XAI_API_KEY: "xai-test-key",
+		TAVILY_API_KEY: "tavily-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.ok, false);
+	assert.match(output.error, /xai search failed \(auth\)/i);
+	assert.deepEqual(output.calls, ["https://api.x.ai/v1/responses"]);
 });
 
 test("legacy single-provider config takes precedence over searchRouting", async () => {

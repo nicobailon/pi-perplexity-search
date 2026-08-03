@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Classify xAI `403` spending-limit and quota-exhaustion responses as quota errors so configured search routing can fall back, while preserving ordinary `403` responses as authentication errors. Thanks `@0xmarcinz` for PR #212.
+
 ## [0.18.0] - 2026-08-03
 
 ### Added
