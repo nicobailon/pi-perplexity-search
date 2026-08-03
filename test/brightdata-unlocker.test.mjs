@@ -291,6 +291,7 @@ test("Bright Data Web Unlocker availability needs both a zone and a credential s
 		{ env: { BRIGHTDATA_API_KEY: "bd-test-key" }, expected: false },
 		{ env: { BRIGHTDATA_UNLOCKER_ZONE: "pi_unlocker" }, expected: false },
 		{ env: { BRIGHTDATA_API_KEY: "bd-test-key", BRIGHTDATA_UNLOCKER_ZONE: "pi_unlocker" }, expected: true },
+		{ env: { BRIGHTDATA_API_KEY: "bd-test-key", BRIGHTDATA_UNLOCKER_ZONE: "https://zone.example.com" }, expected: false },
 	];
 	for (const { env, expected } of cases) {
 		const child = runChild(`
@@ -572,16 +573,18 @@ test("Bright Data Web Unlocker rejects a malformed zone and a malformed config r
 	const badZoneChild = runChild(`
 		let fetchCalls = 0;
 		globalThis.fetch = async () => { fetchCalls++; return new Response("# Should never happen", { status: 200 }); };
-		const { extractWithBrightDataUnlocker } = await import(${JSON.stringify(brightdataModuleUrl)});
+		const { extractWithBrightDataUnlocker, isBrightDataUnlockerAvailable } = await import(${JSON.stringify(brightdataModuleUrl)});
+		const available = isBrightDataUnlockerAvailable();
 		let message = null;
 		try { await extractWithBrightDataUnlocker("https://example.com/a", undefined, { lookup: ${PUBLIC_LOOKUP} }); }
 		catch (err) { message = err.message; }
-		console.log(JSON.stringify({ message, fetchCalls }));
+		console.log(JSON.stringify({ available, message, fetchCalls }));
 	`, { HOME: badZone, USERPROFILE: badZone, PI_CODING_AGENT_DIR: badZone });
 	assert.equal(badZoneChild.status, 0, badZoneChild.stderr);
 	const badZoneOutput = JSON.parse(badZoneChild.stdout.trim());
+	assert.equal(badZoneOutput.available, false);
 	assert.equal(badZoneOutput.fetchCalls, 0);
-	assert.match(badZoneOutput.message, /Invalid Bright Data Unlocker zone in .*web-search\.json/);
+	assert.match(badZoneOutput.message, /Invalid Bright Data Unlocker zone: brightdataUnlockerZone in .*web-search\.json/);
 
 	const badRoot = await mkdtemp(join(tmpdir(), "pi-web-access-brightdata-"));
 	await writeFile(join(badRoot, "web-search.json"), "[]\n", "utf8");

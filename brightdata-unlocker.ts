@@ -70,14 +70,25 @@ function normalizeZone(value: unknown): string | null {
 	if (typeof value !== "string") return null;
 	const trimmed = value.trim();
 	if (!trimmed) return null;
-	if (!ZONE_PATTERN.test(trimmed)) {
-		throw new Error(`Invalid Bright Data Unlocker zone in ${CONFIG_PATH}: expected a zone name of letters, digits, "-", or "_"`);
-	}
-	return trimmed;
+	return ZONE_PATTERN.test(trimmed) ? trimmed : null;
+}
+
+interface ZoneSetting {
+	raw: string;
+	label: string;
+}
+
+function zoneSetting(): ZoneSetting | null {
+	const fromEnv = process.env.BRIGHTDATA_UNLOCKER_ZONE;
+	if (typeof fromEnv === "string" && fromEnv.trim()) return { raw: fromEnv.trim(), label: "BRIGHTDATA_UNLOCKER_ZONE" };
+	const configured = loadConfig().brightdataUnlockerZone;
+	if (typeof configured === "string" && configured.trim()) return { raw: configured.trim(), label: `brightdataUnlockerZone in ${CONFIG_PATH}` };
+	return null;
 }
 
 function getZone(): string | null {
-	return normalizeZone(process.env.BRIGHTDATA_UNLOCKER_ZONE) ?? normalizeZone(loadConfig().brightdataUnlockerZone);
+	const setting = zoneSetting();
+	return setting ? normalizeZone(setting.raw) : null;
 }
 
 // A zone is never defaulted. Zones are per-account names bound to a product
@@ -85,16 +96,21 @@ function getZone(): string | null {
 // charge against the wrong product. The SERP zone from the search provider is
 // a different zone type and cannot serve Web Unlocker requests.
 function requireZone(): string {
-	const zone = getZone();
-	if (!zone) {
+	const setting = zoneSetting();
+	const zone = setting ? normalizeZone(setting.raw) : null;
+	if (zone) return zone;
+	if (setting) {
 		throw new Error(
-			"Bright Data Web Unlocker zone not configured. Either:\n" +
-			`  1. Set brightdataUnlockerZone in ${CONFIG_PATH}\n` +
-			"  2. Set BRIGHTDATA_UNLOCKER_ZONE environment variable\n" +
+			`Invalid Bright Data Unlocker zone: ${setting.label} must be a zone name of letters, digits, "-", or "_". ` +
 			"The zone must be of type \"unblocker\"; a SERP zone will not serve Web Unlocker requests.",
 		);
 	}
-	return zone;
+	throw new Error(
+		"Bright Data Web Unlocker zone not configured. Either:\n" +
+		`  1. Set brightdataUnlockerZone in ${CONFIG_PATH}\n` +
+		"  2. Set BRIGHTDATA_UNLOCKER_ZONE environment variable\n" +
+		"The zone must be of type \"unblocker\"; a SERP zone will not serve Web Unlocker requests.",
+	);
 }
 
 async function getApiKey(signal?: AbortSignal): Promise<string> {
