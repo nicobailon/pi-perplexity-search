@@ -257,8 +257,7 @@ function classifyProviderError(provider: ResolvedSearchProvider, err: unknown): 
 		kind = "credential";
 	} else if (isAbortError(err)) {
 		kind = "aborted";
-    } else if (/spending[- ]limit|out of credits|insufficient quota|quota (?:exceeded|exhausted|limit)|billing|no credits?|credits? (?:exhausted|used up|limit|depleted)|rate
- limit|too many requests/.test(lower)) {
+    } else if (/spending[- ]limit|out of credits|insufficient quota|quota (?:exceeded|exhausted|limit)|billing|no credits?|credits? (?:exhausted|used up|limit|depleted)|rate limit|too many requests/.test(lower)) {
        kind = "quota";
 	} else if (status === 401 || status === 403) {
 		kind = "auth";
