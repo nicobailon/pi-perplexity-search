@@ -17,6 +17,7 @@ function runChild(script, env) {
 		"PARALLEL_API_KEY",
 		"TINYFISH_API_KEY",
 		"TAVILY_API_KEY",
+		"JINA_API_KEY",
 		"EXA_API_KEY",
 		"PERPLEXITY_API_KEY",
 		"GEMINI_API_KEY",

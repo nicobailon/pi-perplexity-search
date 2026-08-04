@@ -39,6 +39,7 @@ function runChild(script, env) {
 		"QUERIT_API_KEY",
 		"PERPLEXITY_API_KEY",
 		"TAVILY_API_KEY",
+		"JINA_API_KEY",
 	]) delete childEnv[key];
 	Object.assign(childEnv, env);
 	return spawnSync(process.execPath, ["--input-type=module"], {
