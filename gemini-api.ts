@@ -75,6 +75,10 @@ export function getVersionedApiBase(): string {
 	return `${getApiHost()}/${API_VERSION}`;
 }
 
+export function getUploadBase(): string {
+	return `${getApiHost()}/upload/v1beta`;
+}
+
 function getLegacyCloudflareApiKey(): string | null {
 	return normalizeApiKey(process.env.CLOUDFLARE_API_KEY) ?? normalizeApiKey(loadConfig().cloudflareApiKey);
 }

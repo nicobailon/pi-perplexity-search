@@ -4,12 +4,11 @@ import { readFile } from "node:fs/promises";
 import { resolve, extname, basename, join, dirname } from "node:path";
 import { activityMonitor } from "./activity.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
-import { queryGeminiApiWithVideo, getApiKey, fetchGeminiApi, API_BASE, redactGeminiApiResponse } from "./gemini-api.ts";
+import { queryGeminiApiWithVideo, getApiKey, fetchGeminiApi, getVersionedApiBase, getUploadBase, redactGeminiApiResponse } from "./gemini-api.ts";
 import { extractHeadingTitle, type ExtractedContent, type ExtractOptions, type FrameResult } from "./extract.ts";
 import { readExecError, trimErrorText, mapFfmpegError, getWebSearchConfigPath } from "./utils.ts";
 
 const CONFIG_PATH = getWebSearchConfigPath();
-const UPLOAD_BASE = "https://generativelanguage.googleapis.com/upload/v1beta";
 
 const DEFAULT_VIDEO_PROMPT = `Extract the complete content of this video. Include:
 1. Video title (infer from content if not explicit), duration
@@ -311,7 +310,7 @@ async function uploadToFilesApi(
 ): Promise<{ name: string; uri: string }> {
 	const displayName = basename(info.absolutePath);
 
-	const initRes = await fetchGeminiApi(`${UPLOAD_BASE}/files`, {
+	const initRes = await fetchGeminiApi(`${getUploadBase()}/files`, {
 		method: "POST",
 		headers: {
 			"X-Goog-Upload-Protocol": "resumable",
@@ -364,7 +363,7 @@ async function pollFileState(
 	while (Date.now() < deadline) {
 		if (signal?.aborted) throw new Error("Aborted");
 
-		const res = await fetchGeminiApi(`${API_BASE}/${fileName}`, { signal }, apiKey);
+		const res = await fetchGeminiApi(`${getVersionedApiBase()}/${fileName}`, { signal }, apiKey);
 		if (!res.ok) throw new Error(`File state check failed: ${res.status}`);
 
 		const data = await res.json() as { state: string };
@@ -378,7 +377,7 @@ async function pollFileState(
 }
 
 function deleteGeminiFile(fileName: string, apiKey: string): void {
-	void fetchGeminiApi(`${API_BASE}/${fileName}`, { method: "DELETE" }, apiKey).catch((err) => {
+	void fetchGeminiApi(`${getVersionedApiBase()}/${fileName}`, { method: "DELETE" }, apiKey).catch((err) => {
 		const message = err instanceof Error ? err.message : String(err);
 		console.error(`Failed to delete Gemini file ${fileName}: ${message}`);
 	});
