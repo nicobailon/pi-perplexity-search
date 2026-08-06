@@ -105,7 +105,7 @@ function mapDomainFilter(domainFilter: string[] | undefined): { includes: string
 	return { includes, excludes };
 }
 
-function buildSearchUrl(query: string, options: JinaSearchOptions, numResults: number): string {
+function buildSearchRequest(query: string, options: JinaSearchOptions, numResults: number): { url: string; filters: ReturnType<typeof mapDomainFilter> } {
 	const filters = mapDomainFilter(options.domainFilter);
 	const recency = options.recencyFilter ? ` published in the past ${options.recencyFilter}` : "";
 	const exclusions = filters.excludes.map((domain) => ` -site:${domain}`).join("");
@@ -113,7 +113,7 @@ function buildSearchUrl(query: string, options: JinaSearchOptions, numResults: n
 	const url = new URL(encodeURIComponent(constrainedQuery), JINA_SEARCH_BASE_URL);
 	url.searchParams.set("count", String(numResults));
 	for (const domain of filters.includes) url.searchParams.append("site", domain);
-	return url.toString();
+	return { url: url.toString(), filters };
 }
 
 function requestSignal(signal?: AbortSignal): { signal: AbortSignal; timeout: AbortSignal } {
@@ -155,13 +155,12 @@ function passesDomainFilter(url: string, filters: ReturnType<typeof mapDomainFil
 	return !filters.excludes.some(matches);
 }
 
-function mapItems(items: JinaSearchItem[], numResults: number, domainFilter?: string[]): {
+function mapItems(items: JinaSearchItem[], numResults: number, filters: ReturnType<typeof mapDomainFilter>): {
 	results: SearchResponse["results"];
 	content: ExtractedContent[];
 } {
 	const results: SearchResponse["results"] = [];
 	const content: ExtractedContent[] = [];
-	const filters = mapDomainFilter(domainFilter);
 	const seen = new Set<string>();
 	for (const item of items) {
 		const url = typeof item?.url === "string" ? item.url.trim() : "";
@@ -222,11 +221,12 @@ export function isJinaSearchAvailable(): boolean {
 export async function searchWithJina(query: string, options: JinaSearchOptions = {}): Promise<SearchResponse> {
 	const apiKey = await requireApiKey(options.signal);
 	const numResults = normalizeCount(options.numResults);
+	const { url, filters } = buildSearchRequest(query, options, numResults);
 	const activityId = activityMonitor.logStart({ type: "api", query });
 	const request = requestSignal(options.signal);
 	let response: Response;
 	try {
-		response = await fetch(buildSearchUrl(query, options, numResults), {
+		response = await fetch(url, {
 			headers: {
 				"Accept": "application/json",
 				"Authorization": `Bearer ${apiKey}`,
@@ -259,12 +259,12 @@ export async function searchWithJina(query: string, options: JinaSearchOptions =
 			rethrowRequestError(err, apiKey, activityId, request, options.signal);
 		}
 		activityMonitor.logComplete(activityId, response.status);
-		throw new Error(`Jina Search API returned invalid JSON: ${errorMessage(err)}`);
+		throw new Error("Jina Search API returned invalid JSON");
 	}
 
 	let mapped: ReturnType<typeof mapItems>;
 	try {
-		mapped = mapItems(parseItems(raw), numResults, options.domainFilter);
+		mapped = mapItems(parseItems(raw), numResults, filters);
 	} catch (err) {
 		const message = errorMessage(err);
 		const redactedMessage = redactCredential(message, apiKey);

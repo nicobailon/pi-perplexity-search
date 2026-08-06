@@ -356,7 +356,6 @@ function providerLabel(provider: ResolvedSearchProvider): string {
 	if (provider === "search1api") return "Search1API";
 	if (provider === "searchinfinity") return "Searchinfinity";
 	if (provider === "querit") return "Querit";
-	if (provider === "jina") return "Jina";
 	if (provider === "serpdive") return "SERPdive";
 	if (provider === "searxng") return "SearXNG";
 	if (provider === "kagi") return "Kagi";

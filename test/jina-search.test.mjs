@@ -206,6 +206,23 @@ test("Jina Search errors redact credentials and retain an HTTP-classifiable stat
 	assert.match(output.error, /\[redacted\]/i);
 });
 
+test("Jina Search invalid JSON errors do not include response body credentials", async () => {
+	const home = await createHome();
+	const child = runChild(`
+		globalThis.fetch = async () => new Response("synthetic-jina-secret malformed", { status: 200 });
+		const { searchWithJina } = await import(${JSON.stringify(jinaModuleUrl)});
+		let error = "";
+		try { await searchWithJina("invalid json"); }
+		catch (err) { error = String(err); }
+		console.log(JSON.stringify({ error }));
+	`, { HOME: home, USERPROFILE: home, JINA_API_KEY: "synthetic-jina-secret" });
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.error, "Error: Jina Search API returned invalid JSON");
+	assert.equal(output.error.includes("synthetic-jina-secret"), false);
+});
+
 test("configured routing treats Jina's own timeout as transient rather than caller cancellation", async () => {
 	const home = await createHome({
 		searchRouting: { providers: ["jina", "tavily"], fallbackOn: ["transient"] },

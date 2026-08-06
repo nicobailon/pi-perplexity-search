@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Added Jina Search as a normal configured `web_search` provider with `jinaApiKey` / `JINA_API_KEY`, explicit/auto/routing/all-provider support, domain and recency constraints, optional inline page content, and Curator integration.
+- Added Jina Search as a normal configured `web_search` provider with `jinaApiKey` / `JINA_API_KEY`, explicit/auto/routing/all-provider support, domain and recency constraints, optional inline page content, and Curator integration. Thanks Orbio Agent (`@Gabrielgvl`) for PR #214.
 
 ### Fixed
 - Route local video Gemini upload, polling, and deletion requests through configured `geminiBaseUrl` / `GOOGLE_GEMINI_BASE_URL` relays. Thanks Mr. (`@Liemo99`) for PR #213.
