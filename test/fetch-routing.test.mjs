@@ -1,0 +1,128 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+
+const extractUrl = new URL("../extract.ts", import.meta.url).href;
+
+async function runExtract(config) {
+	const root = await mkdtemp(join(tmpdir(), "pi-fetch-routing-"));
+	await writeFile(join(root, "web-search.json"), JSON.stringify(config) + "\n", "utf8");
+	const childEnv = { ...process.env, PI_CODING_AGENT_DIR: root, HOME: root, USERPROFILE: root };
+	for (const key of [
+		"FIRECRAWL_BASE_URL", "FIRECRAWL_API_KEY", "PARALLEL_API_KEY", "TINYFISH_API_KEY",
+		"SEARCH1API_KEY", "SEARCH1API_API_KEY", "QUERIT_API_KEY", "KAGI_API_KEY", "OLLAMA_API_KEY",
+		"BRIGHTDATA_API_KEY", "BRIGHTDATA_UNLOCKER_ZONE", "GEMINI_API_KEY", "GOOGLE_GEMINI_API_KEY", "GOOGLE_API_KEY",
+	]) delete childEnv[key];
+
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const calls = [];
+			globalThis.fetch = async (url) => {
+				const text = String(url);
+				calls.push(text);
+				if (text.startsWith("https://r.jina.ai/")) {
+					return new Response("Markdown Content:\\n# Routed\\n\\n" + "Jina routed content. ".repeat(12), { status: 200 });
+				}
+				return new Response("blocked", { status: 403 });
+			};
+			const { extractContent } = await import(${JSON.stringify(extractUrl)});
+			const result = await extractContent("https://example.com/routed", undefined, { lookup: async () => [{ address: "93.184.216.34", family: 4 }] });
+			console.log(JSON.stringify({ calls, result }));
+		`,
+		encoding: "utf8",
+		env: childEnv,
+		maxBuffer: 2 * 1024 * 1024,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	return JSON.parse(child.stdout.trim());
+}
+
+test("fetchRouting.providers can put Jina first after explicit remote-hosted opt-in", async () => {
+	const output = await runExtract({ fetchRouting: { providers: ["jina", "http"], allowRemoteHostedProviders: true } });
+	assert.deepEqual(output.calls, [
+		"https://example.com/routed",
+		"https://r.jina.ai/https://example.com/routed",
+	]);
+	assert.equal(output.result.error, null);
+	assert.equal(output.result.title, "Routed");
+});
+
+test("remote hosted fetch providers are disabled by default", async () => {
+	const output = await runExtract({});
+	assert.deepEqual(output.calls, ["https://example.com/routed"]);
+	assert.match(output.result.error, /HTTP 403/);
+});
+
+test("fetchRouting without providers uses the default order when remote hosted providers are allowed", async () => {
+	const output = await runExtract({ fetchRouting: { allowRemoteHostedProviders: true } });
+	assert.deepEqual(output.calls, [
+		"https://example.com/routed",
+		"https://r.jina.ai/https://example.com/routed",
+	]);
+	assert.equal(output.result.error, null);
+	assert.equal(output.result.title, "Routed");
+});
+
+test("Ollama Web Fetch is disabled for remote URLs without hosted-provider opt-in", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-fetch-routing-ollama-"));
+	await writeFile(join(root, "web-search.json"), JSON.stringify({ ollamaApiKey: "test-key", fetchRouting: { providers: ["ollama", "http"] } }) + "\n", "utf8");
+	const childEnv = { ...process.env, PI_CODING_AGENT_DIR: root, HOME: root, USERPROFILE: root };
+	delete childEnv.OLLAMA_API_KEY;
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const calls = [];
+			globalThis.fetch = async (url) => {
+				const text = String(url);
+				calls.push(text);
+				if (text === "https://example.com/routed") return new Response("blocked", { status: 403 });
+				if (text === "https://ollama.com/api/web_fetch") return new Response(JSON.stringify({ title: "Ollama", content: "remote content" }), { status: 200 });
+				throw new Error("Unexpected fetch " + text);
+			};
+			const { extractContent } = await import(${JSON.stringify(extractUrl)});
+			const result = await extractContent("https://example.com/routed", undefined, { lookup: async () => [{ address: "93.184.216.34", family: 4 }] });
+			console.log(JSON.stringify({ calls, result }));
+		`,
+		encoding: "utf8",
+		env: childEnv,
+		maxBuffer: 2 * 1024 * 1024,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.deepEqual(output.calls, ["https://example.com/routed"]);
+	assert.match(output.result.error, /HTTP 403/);
+});
+
+test("hosted providers cannot bypass redirect policy validation", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-fetch-routing-redirect-"));
+	await writeFile(join(root, "web-search.json"), JSON.stringify({ fetchRouting: { providers: ["jina"], allowRemoteHostedProviders: true } }) + "\n", "utf8");
+	const childEnv = { ...process.env, PI_CODING_AGENT_DIR: root, HOME: root, USERPROFILE: root };
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const calls = [];
+			globalThis.fetch = async (url) => {
+				const text = String(url);
+				calls.push(text);
+				if (text === "https://example.com/redirect") {
+					return new Response("", { status: 302, headers: { location: "http://127.0.0.1/admin" } });
+				}
+				if (text.startsWith("https://r.jina.ai/")) {
+					return new Response("Markdown Content:\\n# Bypassed\\n\\n" + "content ".repeat(80), { status: 200 });
+				}
+				throw new Error("Unexpected fetch " + text);
+			};
+			const { extractContent } = await import(${JSON.stringify(extractUrl)});
+			const result = await extractContent("https://example.com/redirect", undefined, { lookup: async () => [{ address: "93.184.216.34", family: 4 }] });
+			console.log(JSON.stringify({ calls, result }));
+		`,
+		encoding: "utf8",
+		env: childEnv,
+		maxBuffer: 2 * 1024 * 1024,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.deepEqual(output.calls, ["https://example.com/redirect"]);
+	assert.match(output.result.error, /Blocked internal address/);
+});

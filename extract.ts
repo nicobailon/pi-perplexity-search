@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { Readability } from "@mozilla/readability";
 import { resizeImage } from "@earendil-works/pi-coding-agent";
 import { parseHTML } from "linkedom";
@@ -30,6 +31,11 @@ const NON_RECOVERABLE_ERRORS = ["Unsupported content type", "Response too large"
 const MIN_USEFUL_CONTENT = 500;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
+const FETCH_PROVIDERS = ["http", "firecrawl", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "brightdata", "gemini"] as const;
+type FetchProvider = typeof FETCH_PROVIDERS[number];
+type FetchRouting = { providers: FetchProvider[]; allowRemoteHostedProviders: boolean };
+const DEFAULT_FETCH_PROVIDER_ORDER: FetchProvider[] = ["http", "firecrawl", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "brightdata", "gemini"];
+const REMOTE_HOSTED_FETCH_PROVIDERS = new Set<FetchProvider>(["jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "brightdata", "gemini"]);
 
 export { loadSsrfConfig } from "./ssrf-protection.ts";
 
@@ -47,6 +53,70 @@ function isConfigParseError(err: unknown): boolean {
 
 function isAbortError(err: unknown): boolean {
 	return errorMessage(err).toLowerCase().includes("abort");
+}
+
+function isRedirectPolicyError(message: string): boolean {
+	return message.startsWith("Blocked internal ") ||
+		message.startsWith("Blocked hostname by fetch_content domain policy") ||
+		message.startsWith("Hostname not allowed by fetch_content domain policy") ||
+		message.startsWith("Too many redirects fetching ") ||
+		message === "Only HTTP and HTTPS URLs can be fetched remotely" ||
+		message === "URL must include a hostname" ||
+		message.startsWith("Failed to resolve ");
+}
+
+function loadFetchRouting(): FetchRouting {
+	if (!existsSync(WEB_SEARCH_CONFIG_PATH)) {
+		return { providers: DEFAULT_FETCH_PROVIDER_ORDER, allowRemoteHostedProviders: false };
+	}
+
+	let raw: Record<string, unknown>;
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8"));
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			throw new Error("expected a JSON object");
+		}
+		raw = parsed as Record<string, unknown>;
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse ${WEB_SEARCH_CONFIG_PATH}: ${message}`);
+	}
+
+	if (!Object.hasOwn(raw, "fetchRouting")) {
+		return { providers: DEFAULT_FETCH_PROVIDER_ORDER, allowRemoteHostedProviders: false };
+	}
+	const routing = raw.fetchRouting;
+	if (!routing || typeof routing !== "object" || Array.isArray(routing)) {
+		throw new Error(`fetchRouting in ${WEB_SEARCH_CONFIG_PATH} must be an object`);
+	}
+
+	const routingConfig = routing as Record<string, unknown>;
+	const providersValue = routingConfig.providers;
+	let providers = DEFAULT_FETCH_PROVIDER_ORDER;
+	if (providersValue !== undefined) {
+		if (!Array.isArray(providersValue) || providersValue.length === 0) {
+			throw new Error(`fetchRouting.providers in ${WEB_SEARCH_CONFIG_PATH} must be a non-empty array`);
+		}
+
+		providers = [];
+		for (const provider of providersValue) {
+			const normalized = typeof provider === "string" ? provider.trim().toLowerCase() : "";
+			if (!FETCH_PROVIDERS.includes(normalized as FetchProvider)) {
+				throw new Error(`fetchRouting.providers in ${WEB_SEARCH_CONFIG_PATH} contains an invalid provider: ${String(provider)}`);
+			}
+			if (providers.includes(normalized as FetchProvider)) {
+				throw new Error(`fetchRouting.providers in ${WEB_SEARCH_CONFIG_PATH} must not contain duplicates: ${normalized}`);
+			}
+			providers.push(normalized as FetchProvider);
+		}
+	}
+
+	const allowRemoteHostedProvidersValue = routingConfig.allowRemoteHostedProviders;
+	if (allowRemoteHostedProvidersValue !== undefined && typeof allowRemoteHostedProvidersValue !== "boolean") {
+		throw new Error(`fetchRouting.allowRemoteHostedProviders in ${WEB_SEARCH_CONFIG_PATH} must be a boolean`);
+	}
+
+	return { providers, allowRemoteHostedProviders: allowRemoteHostedProvidersValue === true };
 }
 
 function abortedResult(url: string): ExtractedContent {
@@ -470,175 +540,227 @@ export async function extractContent(
 
 	if (signal?.aborted) return abortedResult(url);
 
-	const { declaredLinks = [], ...httpResult } = await extractViaHttp(url, signal, options);
+	let fetchRouting: FetchRouting;
+	try {
+		fetchRouting = loadFetchRouting();
+	} catch (err) {
+		return { url, title: "", content: "", error: errorMessage(err) };
+	}
+	const providerOrder = remoteUrl && !fetchRouting.allowRemoteHostedProviders
+		? fetchRouting.providers.filter(provider => !REMOTE_HOSTED_FETCH_PROVIDERS.has(provider))
+		: fetchRouting.providers;
+	if (providerOrder.length === 0) {
+		return {
+			url,
+			title: "",
+			content: "",
+			error: "Remote hosted fetch providers are disabled unless fetchRouting.allowRemoteHostedProviders is true",
+		};
+	}
+
+	let httpResult: ExtractedContent | null = null;
+	let declaredLinks: DeclaredWebLink[] = [];
 	const withDeclaredLinks = (result: ExtractedContent): ExtractedContent => ({
 		...result,
 		content: appendDeclaredWebLinks(result.content, declaredLinks),
 	});
-
-	if (signal?.aborted) return abortedResult(url);
-	if (!httpResult.error) return httpResult;
-	if (NON_RECOVERABLE_ERRORS.some(prefix => httpResult.error!.startsWith(prefix))) return httpResult;
+	const parseErrorResult = (message: string): ExtractedContent => httpResult
+		? { ...httpResult, error: message }
+		: { url, title: "", content: "", error: message };
+	const runHttpProvider = async (): Promise<ExtractedContent | null> => {
+		const { declaredLinks: discoveredLinks = [], ...result } = await extractViaHttp(url, signal, options);
+		httpResult = result;
+		declaredLinks = discoveredLinks;
+		if (signal?.aborted) return abortedResult(url);
+		if (!httpResult.error) return httpResult;
+		if (NON_RECOVERABLE_ERRORS.some(prefix => httpResult!.error!.startsWith(prefix)) || isRedirectPolicyError(httpResult.error)) {
+			return httpResult;
+		}
+		return null;
+	};
 
 	let firecrawlError: string | null = null;
-	try {
-		if (isFirecrawlAvailable()) {
-			const ssrf = loadSsrfConfig();
-			const firecrawlResult = await extractWithFirecrawl(url, signal, {
-				timeoutMs: options?.timeoutMs,
-				...(options?.lookup ? { lookup: options.lookup } : {}),
-				ssrf,
-			});
-			if (firecrawlResult) return withDeclaredLinks(firecrawlResult);
-		}
-	} catch (err) {
-		if (isAbortError(err)) return abortedResult(url);
-		firecrawlError = errorMessage(err);
-		if (isConfigParseError(err)) return { ...httpResult, error: firecrawlError };
-	}
-	if (signal?.aborted) return abortedResult(url);
-
-	const jinaResult = await extractWithJinaReader(url, signal, options?.lookup);
-	if (jinaResult) return withDeclaredLinks(jinaResult);
-	if (signal?.aborted) return abortedResult(url);
-
 	let tinyfishError: string | null = null;
-	try {
-		if (isTinyFishAvailable()) {
-			const tinyfishResult = await extractWithTinyFish(url, signal, options);
-			if (tinyfishResult) return withDeclaredLinks(tinyfishResult);
-		}
-	} catch (err) {
-		if (isAbortError(err)) return abortedResult(url);
-		tinyfishError = errorMessage(err);
-		if (isConfigParseError(err)) {
-			return { ...httpResult, error: tinyfishError };
-		}
-	}
-	if (signal?.aborted) return abortedResult(url);
-
 	let search1apiError: string | null = null;
-	try {
-		if (isSearch1APIAvailable()) {
-			const search1apiResult = await extractWithSearch1API(url, signal, options);
-			if (search1apiResult) return withDeclaredLinks(search1apiResult);
-		}
-	} catch (err) {
-		if (isAbortError(err)) return abortedResult(url);
-		search1apiError = errorMessage(err);
-		if (isConfigParseError(err)) {
-			return { ...httpResult, error: search1apiError };
-		}
-	}
-	if (signal?.aborted) return abortedResult(url);
-
 	let queritError: string | null = null;
-	try {
-		if (isQueritAvailable()) {
-			const queritResult = await extractWithQuerit(url, signal, options);
-			if (queritResult) return withDeclaredLinks(queritResult);
-		}
-	} catch (err) {
-		if (isAbortError(err)) return abortedResult(url);
-		queritError = errorMessage(err);
-		if (isConfigParseError(err)) {
-			return { ...httpResult, error: queritError };
-		}
-	}
-	if (signal?.aborted) return abortedResult(url);
-
 	let kagiError: string | null = null;
-	try {
-		if (isKagiExtractAvailable()) {
-			const ssrf = loadSsrfConfig();
-			const kagiResult = await extractWithKagi(url, signal, {
-				timeoutMs: options?.timeoutMs,
-				...(options?.lookup ? { lookup: options.lookup } : {}),
-				ssrf,
-			});
-			if (kagiResult) return withDeclaredLinks(kagiResult);
-		}
-	} catch (err) {
-		if (isAbortError(err)) return abortedResult(url);
-		kagiError = errorMessage(err);
-		if (isConfigParseError(err)) {
-			return { ...httpResult, error: kagiError };
-		}
-	}
-	if (signal?.aborted) return abortedResult(url);
-
 	let ollamaError: string | null = null;
-	try {
-		if (isOllamaFetchAvailable()) {
-			const ssrf = loadSsrfConfig();
-			const ollamaResult = await extractWithOllama(url, signal, {
-				timeoutMs: options?.timeoutMs,
-				...(options?.lookup ? { lookup: options.lookup } : {}),
-				ssrf,
-			});
-			if (ollamaResult) return withDeclaredLinks(ollamaResult);
-		}
-	} catch (err) {
-		if (isAbortError(err)) return abortedResult(url);
-		ollamaError = errorMessage(err);
-		if (isConfigParseError(err)) {
-			return { ...httpResult, error: ollamaError };
-		}
-	}
-	if (signal?.aborted) return abortedResult(url);
-
 	let parallelError: string | null = null;
-	try {
-		if (isParallelAvailable()) {
-			const parallelResult = await extractWithParallel(url, signal, options);
-			if (parallelResult) return withDeclaredLinks(parallelResult);
-		}
-	} catch (err) {
-		if (isAbortError(err)) return abortedResult(url);
-		parallelError = errorMessage(err);
-		if (isConfigParseError(err)) {
-			return { ...httpResult, error: parallelError };
-		}
-	}
-	if (signal?.aborted) return abortedResult(url);
-
 	let brightdataError: string | null = null;
-	try {
-		if (isBrightDataUnlockerAvailable()) {
-			const ssrf = loadSsrfConfig();
-			const brightdataResult = await extractWithBrightDataUnlocker(url, signal, {
-				timeoutMs: options?.timeoutMs,
-				...(options?.lookup ? { lookup: options.lookup } : {}),
-				ssrf,
-			});
-			if (brightdataResult) return withDeclaredLinks(brightdataResult);
-		}
-	} catch (err) {
-		if (isAbortError(err)) return abortedResult(url);
-		brightdataError = errorMessage(err);
-		if (isConfigParseError(err)) {
-			return { ...httpResult, error: brightdataError };
-		}
-	}
-	if (signal?.aborted) return abortedResult(url);
 
-	let geminiResult: ExtractedContent | null = null;
-	try {
-		geminiResult = await extractWithUrlContext(url, signal)
-			?? await extractWithGeminiWeb(url, signal);
-	} catch (err) {
-		if (isAbortError(err)) return abortedResult(url);
-		if (err instanceof CredentialResolutionError || isConfigParseError(err)) {
-			return { ...httpResult, error: errorMessage(err) };
-		}
+	if (remoteUrl && providerOrder[0] !== "http") {
+		const httpGateResult = await runHttpProvider();
+		if (httpGateResult) return httpGateResult;
 	}
 
-	if (geminiResult) return withDeclaredLinks(geminiResult);
+	for (const provider of providerOrder) {
+		if (signal?.aborted) return abortedResult(url);
+
+		if (provider === "http") {
+			const result = await runHttpProvider();
+			if (result) return result;
+			continue;
+		}
+
+		if (provider === "firecrawl") {
+			try {
+				if (isFirecrawlAvailable()) {
+					const ssrf = loadSsrfConfig();
+					const firecrawlResult = await extractWithFirecrawl(url, signal, {
+						timeoutMs: options?.timeoutMs,
+						...(options?.lookup ? { lookup: options.lookup } : {}),
+						ssrf,
+					});
+					if (firecrawlResult) return withDeclaredLinks(firecrawlResult);
+				}
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				firecrawlError = errorMessage(err);
+				if (isConfigParseError(err)) return parseErrorResult(firecrawlError);
+			}
+			continue;
+		}
+
+		if (provider === "jina") {
+			const jinaResult = await extractWithJinaReader(url, signal, options?.lookup);
+			if (jinaResult) return withDeclaredLinks(jinaResult);
+			continue;
+		}
+
+		if (provider === "tinyfish") {
+			try {
+				if (isTinyFishAvailable()) {
+					const tinyfishResult = await extractWithTinyFish(url, signal, options);
+					if (tinyfishResult) return withDeclaredLinks(tinyfishResult);
+				}
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				tinyfishError = errorMessage(err);
+				if (isConfigParseError(err)) return parseErrorResult(tinyfishError);
+			}
+			continue;
+		}
+
+		if (provider === "search1api") {
+			try {
+				if (isSearch1APIAvailable()) {
+					const search1apiResult = await extractWithSearch1API(url, signal, options);
+					if (search1apiResult) return withDeclaredLinks(search1apiResult);
+				}
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				search1apiError = errorMessage(err);
+				if (isConfigParseError(err)) return parseErrorResult(search1apiError);
+			}
+			continue;
+		}
+
+		if (provider === "querit") {
+			try {
+				if (isQueritAvailable()) {
+					const queritResult = await extractWithQuerit(url, signal, options);
+					if (queritResult) return withDeclaredLinks(queritResult);
+				}
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				queritError = errorMessage(err);
+				if (isConfigParseError(err)) return parseErrorResult(queritError);
+			}
+			continue;
+		}
+
+		if (provider === "kagi") {
+			try {
+				if (isKagiExtractAvailable()) {
+					const ssrf = loadSsrfConfig();
+					const kagiResult = await extractWithKagi(url, signal, {
+						timeoutMs: options?.timeoutMs,
+						...(options?.lookup ? { lookup: options.lookup } : {}),
+						ssrf,
+					});
+					if (kagiResult) return withDeclaredLinks(kagiResult);
+				}
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				kagiError = errorMessage(err);
+				if (isConfigParseError(err)) return parseErrorResult(kagiError);
+			}
+			continue;
+		}
+
+		if (provider === "ollama") {
+			try {
+				if (isOllamaFetchAvailable()) {
+					const ssrf = loadSsrfConfig();
+					const ollamaResult = await extractWithOllama(url, signal, {
+						timeoutMs: options?.timeoutMs,
+						...(options?.lookup ? { lookup: options.lookup } : {}),
+						ssrf,
+					});
+					if (ollamaResult) return withDeclaredLinks(ollamaResult);
+				}
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				ollamaError = errorMessage(err);
+				if (isConfigParseError(err)) return parseErrorResult(ollamaError);
+			}
+			continue;
+		}
+
+		if (provider === "parallel") {
+			try {
+				if (isParallelAvailable()) {
+					const parallelResult = await extractWithParallel(url, signal, options);
+					if (parallelResult) return withDeclaredLinks(parallelResult);
+				}
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				parallelError = errorMessage(err);
+				if (isConfigParseError(err)) return parseErrorResult(parallelError);
+			}
+			continue;
+		}
+
+		if (provider === "brightdata") {
+			try {
+				if (isBrightDataUnlockerAvailable()) {
+					const ssrf = loadSsrfConfig();
+					const brightdataResult = await extractWithBrightDataUnlocker(url, signal, {
+						timeoutMs: options?.timeoutMs,
+						...(options?.lookup ? { lookup: options.lookup } : {}),
+						ssrf,
+					});
+					if (brightdataResult) return withDeclaredLinks(brightdataResult);
+				}
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				brightdataError = errorMessage(err);
+				if (isConfigParseError(err)) return parseErrorResult(brightdataError);
+			}
+			continue;
+		}
+
+		if (provider === "gemini") {
+			let geminiResult: ExtractedContent | null = null;
+			try {
+				geminiResult = await extractWithUrlContext(url, signal)
+					?? await extractWithGeminiWeb(url, signal);
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				if (err instanceof CredentialResolutionError || isConfigParseError(err)) {
+					return parseErrorResult(errorMessage(err));
+				}
+			}
+			if (geminiResult) return withDeclaredLinks(geminiResult);
+		}
+	}
+
 	if (signal?.aborted) return abortedResult(url);
-	if (declaredLinks.length > 0) return { ...httpResult, error: null };
+	const finalHttpResult = httpResult as ExtractedContent | null;
+	if (finalHttpResult && declaredLinks.length > 0) return { ...finalHttpResult, error: null };
 
 	const guidance = [
-		httpResult.error,
+		finalHttpResult?.error ?? "No fetch_content provider returned content",
 		...(firecrawlError ? [`Firecrawl fallback failed: ${firecrawlError}`] : []),
 		...(tinyfishError ? [`TinyFish fallback failed: ${tinyfishError}`] : []),
 		...(search1apiError ? [`Search1API fallback failed: ${search1apiError}`] : []),
@@ -649,7 +771,7 @@ export async function extractContent(
 		...(brightdataError ? [`Bright Data fallback failed: ${brightdataError}`] : []),
 		"",
 		"Fallback options:",
-		`  \u2022 Set firecrawlBaseUrl in ${WEB_SEARCH_CONFIG_PATH} to a self-hosted Firecrawl instance`,
+		`  • Set firecrawlBaseUrl in ${WEB_SEARCH_CONFIG_PATH} to a self-hosted Firecrawl instance`,
 		`  • Set tinyfishApiKey in ${WEB_SEARCH_CONFIG_PATH} or TINYFISH_API_KEY`,
 		`  • Set search1apiApiKey in ${WEB_SEARCH_CONFIG_PATH} or SEARCH1API_KEY`,
 		`  • Set queritApiKey in ${WEB_SEARCH_CONFIG_PATH} or QUERIT_API_KEY`,
@@ -657,11 +779,11 @@ export async function extractContent(
 		`  • Set ollamaApiKey in ${WEB_SEARCH_CONFIG_PATH} or OLLAMA_API_KEY`,
 		`  • Set parallelApiKey in ${WEB_SEARCH_CONFIG_PATH} or PARALLEL_API_KEY`,
 		`  • Set brightdataApiKey and brightdataUnlockerZone in ${WEB_SEARCH_CONFIG_PATH} or BRIGHTDATA_API_KEY and BRIGHTDATA_UNLOCKER_ZONE`,
-		`  \u2022 Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
-		"  \u2022 Sign into gemini.google.com in Chrome",
-		"  \u2022 Use web_search to find content about this topic",
+		`  • Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
+		"  • Sign into gemini.google.com in Chrome",
+		"  • Use web_search to find content about this topic",
 	].join("\n");
-	return { ...httpResult, error: guidance };
+	return { ...(finalHttpResult ?? { url, title: "", content: "", error: null }), error: guidance };
 }
 
 function isLikelyJSRendered(html: string): boolean {
