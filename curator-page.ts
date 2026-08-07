@@ -1481,6 +1481,9 @@ const SCRIPT = `(function() {
   var lastInteraction = Date.now();
   var completedCount = 0;
   var es = null;
+  var lastLiveEventAt = Date.now();
+  var stateSyncInFlight = false;
+  var liveUpdateWarning = false;
 
   var allQueries = queries.map(function(query, slotId) { return { slotId: slotId, query: query }; });
   var nextSlotId = queries.length;
@@ -1949,15 +1952,28 @@ const SCRIPT = `(function() {
   }
 
   function clearError() {
+    liveUpdateWarning = false;
     if (!errorBanner) return;
     errorBanner.hidden = true;
     errorBanner.textContent = "";
   }
 
   function setError(text) {
+    liveUpdateWarning = false;
     if (!errorBanner) return;
     errorBanner.textContent = text;
     errorBanner.hidden = false;
+  }
+
+  function setLiveUpdateWarning(text) {
+    liveUpdateWarning = true;
+    if (!errorBanner) return;
+    errorBanner.textContent = text;
+    errorBanner.hidden = false;
+  }
+
+  function clearLiveUpdateWarning() {
+    if (liveUpdateWarning) clearError();
   }
 
   function updateSummaryGeneratingIndicator() {
@@ -2756,9 +2772,10 @@ const SCRIPT = `(function() {
     }
   }
 
-  es.addEventListener("result", function(e) {
-    var data = parseSseEventData("result", e);
+  function applyResultEvent(data) {
     if (!data) return;
+    lastLiveEventAt = Date.now();
+    clearLiveUpdateWarning();
 
     var queryText = data.query || queries[data.queryIndex] || "";
     var slotId = typeof data.slotIndex === "number" ? data.slotIndex : queryIndexToSlot.get(data.queryIndex);
@@ -2768,13 +2785,16 @@ const SCRIPT = `(function() {
       card = createSearchingCard(queryText, data.provider);
       card.dataset.qi = data.queryIndex;
       insertResultCard(card, slotId, null);
+    } else if (card.dataset.completed === "true") {
+      return;
     }
     applyResponseToCard(card, data, queryText, data.provider, slotId);
-  });
+  }
 
-  es.addEventListener("search-error", function(e) {
-    var data = parseSseEventData("search-error", e);
+  function applySearchErrorEvent(data) {
     if (!data) return;
+    lastLiveEventAt = Date.now();
+    clearLiveUpdateWarning();
 
     var queryText = data.query || queries[data.queryIndex] || "";
     var slotId = typeof data.slotIndex === "number" ? data.slotIndex : queryIndexToSlot.get(data.queryIndex);
@@ -2784,6 +2804,8 @@ const SCRIPT = `(function() {
       card = createSearchingCard(queryText, data.provider);
       card.dataset.qi = data.queryIndex;
       insertResultCard(card, slotId, null);
+    } else if (card.dataset.completed === "true") {
+      return;
     }
     applyResponseToCard(card, {
       queryIndex: data.queryIndex,
@@ -2792,9 +2814,12 @@ const SCRIPT = `(function() {
       error: data.error || "Search failed",
       provider: data.provider,
     }, queryText, data.provider, slotId);
-  });
+  }
 
-  es.addEventListener("done", function() {
+  function applyDoneEvent() {
+    var wasSearchesDone = searchesDone;
+    lastLiveEventAt = Date.now();
+    clearLiveUpdateWarning();
     searchesDone = true;
     initialStreamDone = true;
     if (completedCount > 0) {
@@ -2804,12 +2829,77 @@ const SCRIPT = `(function() {
     recomputeProviderStates();
     updateStageUI();
     maybeAutoGenerateSummary();
-    resetTimer();
+    if (!wasSearchesDone) resetTimer();
+  }
+
+  function applyStoredLiveEvent(item) {
+    if (!item || typeof item !== "object") return;
+    if (item.event === "result") applyResultEvent(item.data);
+    if (item.event === "search-error") applySearchErrorEvent(item.data);
+  }
+
+  function syncStateFromServer(showWarning) {
+    if (stateSyncInFlight || submitted || timerExpired || searchesDone) return;
+    stateSyncInFlight = true;
+    fetch("/state?session=" + encodeURIComponent(token), { cache: "no-store" })
+      .then(function(res) {
+        return res.text().then(function(raw) {
+          var data = raw ? JSON.parse(raw) : null;
+          if (!res.ok || !data || data.ok === false) {
+            throw new Error(extractServerError(data) || ("HTTP " + res.status));
+          }
+          return data;
+        });
+      })
+      .then(function(data) {
+        if (Array.isArray(data.events)) {
+          data.events.forEach(applyStoredLiveEvent);
+        }
+        if (data.done) applyDoneEvent();
+        if (showWarning && !searchesDone) {
+          setLiveUpdateWarning("Live search updates disconnected. Reconnecting and polling for results.");
+        }
+      })
+      .catch(function(err) {
+        if (!showWarning || submitted || timerExpired) return;
+        var message = err instanceof Error ? err.message : String(err);
+        setLiveUpdateWarning("Live search updates disconnected. Retrying: " + (message || "unknown error"));
+      })
+      .finally(function() {
+        stateSyncInFlight = false;
+      });
+  }
+
+  es.addEventListener("open", function() {
+    lastLiveEventAt = Date.now();
+    clearLiveUpdateWarning();
+    syncStateFromServer(false);
+  });
+
+  es.addEventListener("result", function(e) {
+    var data = parseSseEventData("result", e);
+    applyResultEvent(data);
+  });
+
+  es.addEventListener("search-error", function(e) {
+    var data = parseSseEventData("search-error", e);
+    applySearchErrorEvent(data);
+  });
+
+  es.addEventListener("done", function() {
+    applyDoneEvent();
   });
 
   es.onerror = function() {
-    // EventSource reconnects automatically.
+    if (submitted || timerExpired || searchesDone) return;
+    syncStateFromServer(true);
   };
+
+  setInterval(function() {
+    if (submitted || timerExpired || searchesDone || initialStreamDone) return;
+    if (Date.now() - lastLiveEventAt <= 5000) return;
+    syncStateFromServer(false);
+  }, 5000);
 
   function setupCardInteraction(card) {
     var header = card.querySelector(".result-card-header");

@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Added Jina Search as a normal configured `web_search` provider with `jinaApiKey` / `JINA_API_KEY`, explicit/auto/routing/all-provider support, domain and recency constraints, optional inline page content, and Curator integration. Thanks Orbio Agent (`@Gabrielgvl`) for PR #214.
 
 ### Fixed
+- Keep manual `/websearch` curator pages in sync if the live SSE stream disconnects or misses events while searches are still running. Thanks `@Whisperfall` for issue #215.
 - Updated Kagi Search and Extract requests for the current v1 API contracts. Thanks `@mattgaff` for PR #217.
 - Recognize `:max` thinking suffixes when matching scoped summary models. Thanks `@justin8ty` for PR #219.
 - Route local video Gemini upload, polling, and deletion requests through configured `geminiBaseUrl` / `GOOGLE_GEMINI_BASE_URL` relays. Thanks Mr. (`@Liemo99`) for PR #213.

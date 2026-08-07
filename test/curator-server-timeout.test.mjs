@@ -64,6 +64,25 @@ function withTimeout(promise, label) {
 	]);
 }
 
+async function readEventStreamUntil(response, marker, label) {
+	assert.equal(response.status, 200);
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let text = "";
+	try {
+		await withTimeout((async () => {
+			while (!text.includes(marker)) {
+				const chunk = await reader.read();
+				if (chunk.done) break;
+				text += decoder.decode(chunk.value, { stream: true });
+			}
+		})(), label);
+	} finally {
+		await reader.cancel().catch(() => {});
+	}
+	return text;
+}
+
 test("curator times out when searches finish but no browser connects", async () => {
 	const { startCuratorServer } = await loadServer();
 	let resolveCancel;
@@ -76,6 +95,28 @@ test("curator times out when searches finish but no browser connects", async () 
 
 		const reason = await withTimeout(cancelPromise, "no-browser timeout");
 		assert.equal(reason, "timeout");
+	} finally {
+		handle.close();
+	}
+});
+
+test("curator replays search events after SSE reconnect", async () => {
+	const { startCuratorServer } = await loadServer();
+	const handle = await startCuratorServer(baseOptions(20), baseCallbacks(() => {}));
+
+	try {
+		const eventsUrl = new URL("/events", handle.url);
+		eventsUrl.searchParams.set("session", "test-token");
+		const firstResponse = await fetch(eventsUrl);
+		assert.equal(firstResponse.status, 200);
+
+		handle.pushResult(0, { answer: "answer", results: [], provider: "exa" });
+		await firstResponse.body.cancel().catch(() => {});
+
+		const secondResponse = await fetch(eventsUrl);
+		const body = await readEventStreamUntil(secondResponse, "event: result", "sse replay");
+		assert.match(body, /event: result/);
+		assert.match(body, /"answer":"answer"/);
 	} finally {
 		handle.close();
 	}
@@ -174,6 +215,47 @@ test("curator heartbeat timeout finalizes connected idle browser sessions", asyn
 
 		const reason = await withTimeout(cancelPromise, "idle heartbeat timeout");
 		assert.equal(reason, "timeout");
+	} finally {
+		handle.close();
+	}
+});
+
+test("curator state replay keeps current results and compacts superseded history", async () => {
+	const { startCuratorServer } = await loadServer();
+	const handle = await startCuratorServer(baseOptions(20), baseCallbacks(() => {}));
+
+	try {
+		for (let i = 0; i < 205; i++) {
+			handle.pushResult(i, { answer: `answer ${i}`, results: [], provider: "exa", query: `query ${i}` });
+		}
+		handle.pushError(0, "updated", "exa", { query: "query 0" });
+
+		const response = await fetch(new URL("/state?session=test-token", handle.url));
+		assert.equal(response.status, 200);
+		const body = await response.json();
+		assert.equal(body.events.length, 205);
+		assert.equal(body.events[0].event, "search-error");
+		assert.equal(body.events[0].data.queryIndex, 0);
+		assert.equal(body.events[204].data.queryIndex, 204);
+	} finally {
+		handle.close();
+	}
+});
+
+test("curator state replay keeps all-provider entries that share one slot", async () => {
+	const { startCuratorServer } = await loadServer();
+	const handle = await startCuratorServer(baseOptions(20), baseCallbacks(() => {}));
+
+	try {
+		handle.pushResult(0, { answer: "exa answer", results: [], provider: "exa", query: "query", slotIndex: 0 });
+		handle.pushResult(1, { answer: "brave answer", results: [], provider: "brave", query: "query", slotIndex: 0 });
+
+		const response = await fetch(new URL("/state?session=test-token", handle.url));
+		assert.equal(response.status, 200);
+		const body = await response.json();
+		assert.deepEqual(body.events.map((event) => event.data.provider), ["exa", "brave"]);
+		assert.deepEqual(body.events.map((event) => event.data.queryIndex), [0, 1]);
+		assert.deepEqual(body.events.map((event) => event.data.slotIndex), [0, 0]);
 	} finally {
 		handle.close();
 	}
