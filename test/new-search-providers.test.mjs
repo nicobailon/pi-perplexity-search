@@ -66,14 +66,14 @@ test("Ollama search and Web Fetch use the Cloud REST endpoints", async () => {
 	assert.equal(output.fetched.content, "Fetched markdown");
 });
 
-test("Kagi search maps v0 results and Extract maps markdown", async () => {
+test("Kagi search maps v1 results and Extract maps markdown", async () => {
 	const home = await createHome({ kagiApiKey: "kagi-test-key" });
 	const child = runChild(`
 		const calls = [];
 		globalThis.fetch = async (url, init = {}) => {
 			calls.push({ url: String(url), method: init.method || "GET", headers: Object.fromEntries(new Headers(init.headers)), body: init.body ? JSON.parse(init.body) : null });
-			if (String(url).startsWith("https://kagi.com/api/v0/search?")) {
-				return new Response(JSON.stringify({ data: [{ title: "Kagi result", url: "https://example.com/kagi", snippet: "Kagi snippet", content: "Kagi content" }] }), { status: 200 });
+			if (String(url) === "https://kagi.com/api/v1/search") {
+				return new Response(JSON.stringify({ data: { search: [{ title: "Kagi result", url: "https://example.com/kagi", snippet: "Kagi snippet" }] } }), { status: 200 });
 			}
 			if (String(url) === "https://kagi.com/api/v1/extract") {
 				return new Response(JSON.stringify({ data: [{ url: "https://example.com/kagi", title: "Kagi extract", markdown: "Kagi markdown" }] }), { status: 200 });
@@ -87,12 +87,13 @@ test("Kagi search maps v0 results and Extract maps markdown", async () => {
 	`, { PI_CODING_AGENT_DIR: home });
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.match(output.calls[0].url, /^https:\/\/kagi\.com\/api\/v0\/search\?/);
-	assert.equal(output.calls[0].headers.authorization, "Bot kagi-test-key");
-	assert.equal(new URL(output.calls[0].url).searchParams.get("limit"), "3");
-	assert.deepEqual(output.search.inlineContent, [{ url: "https://example.com/kagi", title: "Kagi result", content: "Kagi content", error: null }]);
+	assert.equal(output.calls[0].url, "https://kagi.com/api/v1/search");
+	assert.equal(output.calls[0].method, "POST");
+	assert.equal(output.calls[0].headers.authorization, "Bearer kagi-test-key");
+	assert.deepEqual(output.calls[0].body, { query: "premium search", limit: 3 });
+	assert.deepEqual(output.search.results, [{ title: "Kagi result", url: "https://example.com/kagi", snippet: "Kagi snippet" }]);
 	assert.equal(output.calls[1].url, "https://kagi.com/api/v1/extract");
-	assert.deepEqual(output.calls[1].body, { urls: ["https://example.com/kagi"] });
+	assert.deepEqual(output.calls[1].body, { pages: [{ url: "https://example.com/kagi" }] });
 	assert.equal(output.fetched.content, "Kagi markdown");
 });
 

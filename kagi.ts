@@ -6,7 +6,7 @@ import { hasCredentialSource, redactCredential, resolveCredential } from "./cred
 import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type SsrfConfig } from "./ssrf-protection.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-const KAGI_SEARCH_URL = "https://kagi.com/api/v0/search";
+const KAGI_SEARCH_URL = "https://kagi.com/api/v1/search";
 const KAGI_EXTRACT_URL = "https://kagi.com/api/v1/extract";
 const CONFIG_PATH = getWebSearchConfigPath();
 const SEARCH_TIMEOUT_MS = 60_000;
@@ -95,8 +95,6 @@ function appendSearchItems(value: unknown, results: SearchResponse["results"], i
 	}
 	if (!value || typeof value !== "object") return;
 	const item = value as Record<string, unknown>;
-	const nested = item.results ?? item.items ?? item.list;
-	if (Array.isArray(nested)) appendSearchItems(nested, results, inlineContent);
 	const url = firstString(item.url, item.href, item.link);
 	if (!url) return;
 	const title = firstString(item.title, item.name) ?? url;
@@ -126,8 +124,11 @@ function parseSearchResponse(value: unknown): { results: SearchResponse["results
 	const envelope = value as Record<string, unknown>;
 	const results: SearchResponse["results"] = [];
 	const inlineContent: ExtractedContent[] = [];
-	appendSearchItems(envelope.data, results, inlineContent);
-	if (results.length === 0 && envelope.data !== null) appendSearchItems(envelope, results, inlineContent);
+	const data = envelope.data;
+	const items = (typeof data === "object" && data !== null && !Array.isArray(data))
+		? (data as Record<string, unknown>).search
+		: data;
+	appendSearchItems(items, results, inlineContent);
 	return { results, inlineContent };
 }
 
@@ -165,14 +166,13 @@ export function isKagiAvailable(): boolean {
 export async function searchWithKagi(query: string, options: KagiSearchOptions = {}): Promise<SearchResponse> {
 	const apiKey = await requireApiKey(options.signal);
 	const numResults = normalizeCount(options.numResults);
-	const url = new URL(KAGI_SEARCH_URL);
-	url.searchParams.set("q", query);
-	url.searchParams.set("limit", String(numResults));
 	const activityId = activityMonitor.logStart({ type: "api", query });
 	let response: Response;
 	try {
-		response = await fetch(url, {
-			headers: { Authorization: `Bot ${apiKey}`, Accept: "application/json" },
+		response = await fetch(KAGI_SEARCH_URL, {
+			method: "POST",
+			headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
+			body: JSON.stringify({ query, limit: numResults }),
 			signal: options.signal ? AbortSignal.any([AbortSignal.timeout(SEARCH_TIMEOUT_MS), options.signal]) : AbortSignal.timeout(SEARCH_TIMEOUT_MS),
 		});
 	} catch (err) {
@@ -228,8 +228,8 @@ export async function extractWithKagi(url: string, signal?: AbortSignal, options
 	try {
 		response = await fetchRemoteUrl(KAGI_EXTRACT_URL, {
 			method: "POST",
-			headers: { Authorization: `Bot ${apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
-			body: JSON.stringify({ urls: [url] }),
+			headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
+			body: JSON.stringify({ pages: [{ url }] }),
 			signal: signal ? AbortSignal.any([AbortSignal.timeout(options.timeoutMs ?? SEARCH_TIMEOUT_MS), signal]) : AbortSignal.timeout(options.timeoutMs ?? SEARCH_TIMEOUT_MS),
 		}, {
 			allowRanges: ssrf.allowRanges,
