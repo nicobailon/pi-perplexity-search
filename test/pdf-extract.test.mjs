@@ -173,7 +173,7 @@ function buildChildScript(
         import { mkdtemp, readFile, writeFile } from "node:fs/promises";
         import { tmpdir } from "node:os";
         import { join } from "node:path";
-    
+
         process.on("uncaughtException", (error) => {
           console.error(error?.stack || error);
           process.exit(1);
@@ -182,25 +182,25 @@ function buildChildScript(
           console.error(error?.stack || error);
           process.exit(1);
         });
-    
+
         Reflect.deleteProperty(Promise, "try");
         if (typeof Promise.try !== "undefined") {
           throw new Error("Expected Promise.try to be unavailable before PDF extraction");
         }
-    
+
         const geminiMode = ${JSON.stringify(geminiMode)};
         const datalabMode = ${JSON.stringify(datalabMode)};
         const provider = ${JSON.stringify(provider)};
         const configDir = await mkdtemp(join(tmpdir(), "pi-web-access-pdf-config-"));
         process.env.PI_CODING_AGENT_DIR = configDir;
-    
+
         if (provider) {
           await writeFile(
             join(configDir, "web-search.json"),
             JSON.stringify({ pdf: { provider } }),
           );
         }
-    
+
         if (geminiMode !== "none") {
           process.env.GEMINI_API_KEY = "synthetic-gemini-key";
         } else {
@@ -208,13 +208,13 @@ function buildChildScript(
           delete process.env.GOOGLE_GEMINI_BASE_URL;
           delete process.env.CLOUDFLARE_API_KEY;
         }
-    
+
         if (datalabMode !== "none") {
           process.env.DATALAB_API_KEY = "synthetic-datalab-key";
         } else {
           delete process.env.DATALAB_API_KEY;
         }
-    
+
         if (geminiMode !== "none" || datalabMode !== "none") {
           globalThis.fetch = async (url, init) => {
             if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -279,7 +279,7 @@ function buildChildScript(
             throw new Error("unexpected fetch: " + urlString);
           };
         }
-    
+
         const { extractPDFToMarkdown } = await import(${JSON.stringify(moduleUrl)});
         const outputDir = await mkdtemp(join(tmpdir(), "pi-web-access-pdf-"));
 

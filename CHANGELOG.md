@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added Datalab hosted PDF-to-Markdown extraction as an optional PDF provider. Thanks José Antonio Galiano Sandoval (`@jagaliano`) for PR #226.
+
 ### Fixed
 - Preserve collapsed `web_search` result background padding. Thanks `@SheffeyG` for PR #224.
 
