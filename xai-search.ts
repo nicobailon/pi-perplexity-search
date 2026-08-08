@@ -36,10 +36,12 @@ interface WebSearchConfig {
 	xaiSearchModel?: unknown;
 }
 
+type ProviderHeaders = Record<string, string | null>;
+
 interface XaiAuth {
 	apiKey: string;
 	model: string;
-	headers: Record<string, string>;
+	headers: ProviderHeaders;
 }
 
 let cachedConfig: WebSearchConfig | null = null;
@@ -67,6 +69,14 @@ function resolveConfiguredSearchModel(value: unknown): string | undefined {
 		throw new Error(`xaiSearchModel in ${CONFIG_PATH} must be a non-empty string`);
 	}
 	return value.trim();
+}
+
+function toRequestHeaders(headers: ProviderHeaders): Record<string, string> {
+	const requestHeaders: Record<string, string> = {};
+	for (const [name, value] of Object.entries(headers)) {
+		if (value !== null) requestHeaders[name] = value;
+	}
+	return requestHeaders;
 }
 
 /**
@@ -287,7 +297,7 @@ export async function searchWithXai(
 		const response = await fetch(XAI_RESPONSES_URL, {
 			method: "POST",
 			headers: {
-				...auth.headers,
+				...toRequestHeaders(auth.headers),
 				Authorization: `Bearer ${auth.apiKey}`,
 				"Content-Type": "application/json",
 			},

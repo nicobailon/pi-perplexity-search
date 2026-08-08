@@ -38,11 +38,13 @@ interface WebSearchConfig {
 	openaiSearchModel?: unknown;
 }
 
+type ProviderHeaders = Record<string, string | null>;
+
 interface OpenAIAuth {
 	provider: "openai-codex" | "openai";
 	apiKey: string;
 	model: string;
-	headers: Record<string, string>;
+	headers: ProviderHeaders;
 	responsesUrl: string;
 }
 
@@ -153,6 +155,14 @@ function resolveConfiguredSearchModel(value: unknown): string | undefined {
 		throw new Error(`openaiSearchModel in ${CONFIG_PATH} must be a non-empty string`);
 	}
 	return value.trim();
+}
+
+function toRequestHeaders(headers: ProviderHeaders): Record<string, string> {
+	const requestHeaders: Record<string, string> = {};
+	for (const [name, value] of Object.entries(headers)) {
+		if (value !== null) requestHeaders[name] = value;
+	}
+	return requestHeaders;
 }
 
 async function resolvePiAuth(ctx: ExtensionContext, responsesUrl: string, modelOverride?: string): Promise<OpenAIAuth | undefined> {
@@ -407,7 +417,7 @@ export async function searchWithOpenAI(
 
 	const activityId = activityMonitor.logStart({ type: "api", query });
 	const headers: Record<string, string> = {
-		...auth.headers,
+		...toRequestHeaders(auth.headers),
 		Authorization: `Bearer ${auth.apiKey}`,
 		"Content-Type": "application/json",
 		"OpenAI-Beta": "responses=experimental",

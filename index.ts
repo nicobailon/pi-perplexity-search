@@ -209,6 +209,8 @@ type ToolNames = {
 	getSearchContent: string;
 };
 
+type ProviderHeaders = Record<string, string | null>;
+
 const DEFAULT_TOOL_NAMES: ToolNames = {
 	webSearch: "web_search",
 	sourceCheck: "source_check",
@@ -1006,7 +1008,7 @@ export default function (pi: ExtensionAPI) {
 	async function resolveFirstAvailableModel(
 		ctx: SummaryGenerationContext,
 		candidates: Array<{ provider: string; id: string }>,
-	): Promise<{ model: Model<Api>; apiKey: string; headers?: Record<string, string> }> {
+	): Promise<{ model: Model<Api>; apiKey: string; headers?: ProviderHeaders }> {
 		const enabledModelPatterns = loadEnabledModelPatterns(ctx);
 		for (const { provider, id } of candidates) {
 			const model = findModelWithProviderRouting(ctx.modelRegistry, provider, id);
