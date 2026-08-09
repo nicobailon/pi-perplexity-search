@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Added Datalab hosted PDF-to-Markdown extraction as an optional PDF provider. Thanks José Antonio Galiano Sandoval (`@jagaliano`) for PR #226.
 
+### Changed
+- Documented the no-account Jina Reader fallback for Reddit URLs blocked by direct HTTP. Thanks `@talosu` for issue #225.
+
 ### Fixed
 - Preserve collapsed `web_search` result background padding. Thanks `@SheffeyG` for PR #224.
 
