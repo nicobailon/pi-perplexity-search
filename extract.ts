@@ -771,7 +771,6 @@ export async function extractContent(
 		...(brightdataError ? [`Bright Data fallback failed: ${brightdataError}`] : []),
 		"",
 		"Fallback options:",
-		`  • For Reddit without a working app, set fetchRouting.providers to ["http", "jina"] and fetchRouting.allowRemoteHostedProviders to true in ${WEB_SEARCH_CONFIG_PATH}`,
 		`  • Set firecrawlBaseUrl in ${WEB_SEARCH_CONFIG_PATH} to a self-hosted Firecrawl instance`,
 		`  • Set tinyfishApiKey in ${WEB_SEARCH_CONFIG_PATH} or TINYFISH_API_KEY`,
 		`  • Set search1apiApiKey in ${WEB_SEARCH_CONFIG_PATH} or SEARCH1API_KEY`,
