@@ -667,7 +667,7 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 
 async function searchWithGeminiApi(query: string, options: SearchOptions = {}): Promise<SearchResponse | null> {
 	const requestSignal = AbortSignal.any([
-		AbortSignal.timeout(60000),
+		AbortSignal.timeout(120000),
 		...(options.signal ? [options.signal] : []),
 	]);
 	const apiKey = await getApiKey(requestSignal);
@@ -726,7 +726,7 @@ async function searchWithGeminiWeb(query: string, options: SearchOptions = {}): 
 	try {
 		const text = await queryWithCookies(prompt, cookies, {
 			signal: options.signal,
-			timeoutMs: 60000,
+			timeoutMs: 120000,
 		});
 
 		activityMonitor.logComplete(activityId, 200);

@@ -57,6 +57,7 @@ export const GEMINI_MAX_HEADER_SIZE = 4 * 1024 * 1024;
 export function createGeminiFetch(undiciImpl: typeof import("undici")): typeof fetch {
 const agent = new undiciImpl.EnvHttpProxyAgent({
 	allowH2: false,
+	connectTimeout: 30_000,
 	maxHeaderSize: GEMINI_MAX_HEADER_SIZE,
 	pipelining: 1,
 });
