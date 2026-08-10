@@ -2555,13 +2555,13 @@ export default function (pi: ExtensionAPI) {
 			queryIndex: Type.Optional(Type.Number({ description: "Get content for query at index" })),
 			url: Type.Optional(Type.String({ description: "Get content for this URL" })),
 			urlIndex: Type.Optional(Type.Number({ description: "Get content for URL at index" })),
-			offset: Type.Optional(Type.Number({ description: "Character offset for fetched URL content slices (default 0)" })),
-			limit: Type.Optional(Type.Number({ description: `Maximum characters to return for fetched URL content slices (default/max ${MAX_CONTENT_SLICE_LENGTH})` })),
+			offset: Type.Optional(Type.Number({ description: "Character offset for fetched URL content slices (default 0). Cannot be combined with findText." })),
+			limit: Type.Optional(Type.Number({ description: `Maximum characters to return for fetched URL content slices (default/max ${MAX_CONTENT_SLICE_LENGTH}). Cannot be combined with findText.` })),
 			findText: Type.Optional(Type.Union([
 				Type.String({ minLength: 1, maxLength: 500 }),
 				Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { minItems: 1, maxItems: 10 }),
-			], { description: "Text or texts to find in the selected stored content." })),
-			findMode: Type.Optional(StringEnum(["exact", "case-insensitive", "fuzzy"], { description: "Matching mode for findText (default: case-insensitive)." })),
+			], { description: "Text or texts to find in the selected stored content. Cannot be combined with offset or limit." })),
+			findMode: Type.Optional(StringEnum(["exact", "case-insensitive", "fuzzy"], { description: "Matching mode for findText (default: case-insensitive). Requires findText." })),
 		}),
 
 		async execute(_toolCallId, params): Promise<AgentToolResult<Record<string, unknown>>> {
