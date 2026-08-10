@@ -50,7 +50,8 @@
     "promise.try": "^2.0.1",
     "turndown": "^7.2.0",
     "typebox": "^1.1.38",
-    "unpdf": "^1.6.2"
+    "unpdf": "^1.6.2",
+    "undici": "^8.9.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

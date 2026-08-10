@@ -24,6 +24,66 @@ const MODEL_HEADERS: Record<string, string> = {
 
 const REQUIRED_COOKIES = ["__Secure-1PSID", "__Secure-1PSIDTS"];
 
+// Gemini Web talks to Google's frontend inside the host agent (pi), whose
+// global undici dispatcher runs HTTP/1.1 with undici's default 16 KiB
+// maxHeaderSize. Google's gemini.google.com /app response headers routinely
+// exceed that budget over HTTP/1.1, so cookie-bearing requests fail with
+// UND_ERR_HEADERS_OVERFLOW surfaced as "fetch failed". Route these requests
+// through a dedicated undici Agent with a larger header budget instead; fall
+// back to the ambient global fetch when undici is not resolvable (e.g.
+// standalone test environments).
+let geminiFetchImpl: typeof fetch | null = null;
+
+// Test-only hook: lets tests inject a simulated transport instead of patching
+// globalThis.fetch. Gemini Web deliberately bypasses the ambient global fetch
+// (inside the pi host agent it is constrained to undici's 16 KiB
+// maxHeaderSize and cannot serve Google's /app page over HTTP/1.1), so
+// globalThis.fetch patching is no longer a reliable way to intercept these
+// requests.
+export function setGeminiFetchOverrideForTests(fetchImpl: typeof fetch | null): void {
+geminiFetchOverride = fetchImpl;
+}
+
+let geminiFetchOverride: typeof fetch | null = null;
+
+// The header budget Gemini Web needs for Google frontend responses.
+// Google's /app page exceeds undici's default 16 KiB maxHeaderSize when
+// served over HTTP/1.1, which is how pi's global dispatcher operates.
+export const GEMINI_MAX_HEADER_SIZE = 4 * 1024 * 1024;
+
+// Build a fetch that routes through a dedicated undici Agent with a larger
+// header budget than the host agent's global dispatcher allows. Exported for
+// tests so the agent configuration can be asserted without network access.
+export function createGeminiFetch(undiciImpl: typeof import("undici")): typeof fetch {
+const agent = new undiciImpl.EnvHttpProxyAgent({
+	allowH2: false,
+	maxHeaderSize: GEMINI_MAX_HEADER_SIZE,
+	pipelining: 1,
+});
+// undici 8 types its fetch request/response structurally differently from
+// the DOM lib types (duplex/textStream on Request, Symbol.dispose on
+// Headers); the shape this module uses (status, ok, headers.get, text) is
+// identical, so bridge the two.
+type UndiciFetch = typeof undiciImpl.fetch;
+return (input, init) =>
+undiciImpl.fetch(
+input as unknown as Parameters<UndiciFetch>[0],
+{ ...init, dispatcher: agent } as unknown as Parameters<UndiciFetch>[1],
+) as unknown as Promise<Response>;
+}
+
+export async function resolveGeminiFetch(): Promise<typeof fetch> {
+if (geminiFetchOverride) return geminiFetchOverride;
+if (geminiFetchImpl) return geminiFetchImpl;
+try {
+	const undici = await import("undici");
+	geminiFetchImpl = createGeminiFetch(undici);
+} catch {
+	geminiFetchImpl = fetch;
+}
+return geminiFetchImpl;
+}
+
 export interface GeminiWebOptions {
 	youtubeUrl?: string;
 	model?: string;
@@ -129,7 +189,7 @@ async function runGeminiWebOnce(
 	params.set("at", accessToken);
 	params.set("f.req", fReq);
 
-	const res = await fetch(GEMINI_STREAM_GENERATE_URL, {
+	const res = await (await resolveGeminiFetch())(GEMINI_STREAM_GENERATE_URL, {
 		method: "POST",
 		redirect: "error",
 		headers: {
@@ -192,7 +252,7 @@ async function fetchWithCookieRedirects(
 	let current = url;
 	const allowedOrigin = new URL(url).origin;
 	for (let i = 0; i <= maxRedirects; i++) {
-		const res = await fetch(current, {
+		const res = await (await resolveGeminiFetch())(current, {
 			headers: { "user-agent": USER_AGENT, cookie: cookieHeader },
 			redirect: "manual",
 			signal,
@@ -302,7 +362,7 @@ async function uploadFile(
 		Buffer.from(footer, "utf-8"),
 	]);
 
-	const res = await fetch(GEMINI_UPLOAD_URL, {
+	const res = await (await resolveGeminiFetch())(GEMINI_UPLOAD_URL, {
 		method: "POST",
 		redirect: "error",
 		headers: {
