@@ -17,6 +17,7 @@ import {
 	getAllResults,
 	getResult,
 	restoreFromSession,
+	storeFetchedContentResult,
 	storeResult,
 	type QueryResultData,
 	type StoredSearchData,
@@ -914,14 +915,13 @@ export default function (pi: ExtensionAPI) {
 		fetchAllContent(urls, controller.signal)
 			.then((fetched) => {
 				if (!sessionActive || !pendingFetches.has(fetchId)) return;
-				const data: StoredSearchData = {
+				const data = {
 					id: fetchId,
 					type: "fetch",
 					timestamp: Date.now(),
 					urls: stripThumbnails(fetched),
-				};
-				storeResult(fetchId, data);
-				pi.appendEntry("web-search-results", data);
+				} satisfies StoredSearchData & { type: "fetch"; urls: ExtractedContent[] };
+				pi.appendEntry("web-search-results", storeFetchedContentResult(fetchId, data));
 				const ok = fetched.filter(f => !f.error).length;
 				pi.sendMessage(
 					{
@@ -1236,14 +1236,13 @@ export default function (pi: ExtensionAPI) {
 		let fetchId: string | null = null;
 		if (hasInlineReady && opts.inlineContent) {
 			fetchId = generateId();
-			const data: StoredSearchData = {
+			const data = {
 				id: fetchId,
 				type: "fetch",
 				timestamp: Date.now(),
 				urls: opts.inlineContent,
-			};
-			storeResult(fetchId, data);
-			pi.appendEntry("web-search-results", data);
+			} satisfies StoredSearchData & { type: "fetch"; urls: ExtractedContent[] };
+			pi.appendEntry("web-search-results", storeFetchedContentResult(fetchId, data));
 			if (!hasApprovedSummary) {
 				output += `---\nFull content for ${opts.inlineContent.length} sources available [${fetchId}].`;
 			}
@@ -2357,14 +2356,13 @@ export default function (pi: ExtensionAPI) {
 
 			// ALWAYS store results (even for single URL)
 			const responseId = generateId();
-			const data: StoredSearchData = {
+			const data = {
 				id: responseId,
 				type: "fetch",
 				timestamp: Date.now(),
 				urls: stripThumbnails(fetchResults),
-			};
-			storeResult(responseId, data);
-			pi.appendEntry("web-search-results", data);
+			} satisfies StoredSearchData & { type: "fetch"; urls: ExtractedContent[] };
+			pi.appendEntry("web-search-results", storeFetchedContentResult(responseId, data));
 
 			// Single URL: return content directly (possibly truncated) with responseId
 			if (urlList.length === 1) {
@@ -3237,8 +3235,8 @@ export default function (pi: ExtensionAPI) {
 					const query = r.queries[0]?.query || "unknown";
 					return `[${r.id.slice(0, 6)}] "${query}" (${r.queries.length} queries) - ${ageStr}`;
 				}
-				if (r.type === "fetch" && r.urls) {
-					return `[${r.id.slice(0, 6)}] ${r.urls.length} URLs fetched - ${ageStr}`;
+				if (r.type === "fetch" && (r.urls || r.urlMetadata)) {
+					return `[${r.id.slice(0, 6)}] ${(r.urls ?? r.urlMetadata ?? []).length} URLs fetched - ${ageStr}`;
 				}
 				return `[${r.id.slice(0, 6)}] ${r.type} - ${ageStr}`;
 			});
@@ -3270,15 +3268,17 @@ export default function (pi: ExtensionAPI) {
 						info += `... and ${selected.queries.length - 10} more\n`;
 					}
 				}
-				if (selected.type === "fetch" && selected.urls) {
+				if (selected.type === "fetch" && (selected.urls || selected.urlMetadata)) {
 					info += "URLs:\n";
-					const urls = selected.urls.slice(0, 10);
+					const urlItems = selected.urls ?? selected.urlMetadata ?? [];
+					const urls = urlItems.slice(0, 10);
 					for (const u of urls) {
 						const urlDisplay = u.url.length > 50 ? u.url.slice(0, 47) + "..." : u.url;
-						info += `- ${urlDisplay} (${u.error || `${u.content.length} chars`})\n`;
+						const contentLength = "content" in u ? u.content.length : u.contentLength;
+						info += `- ${urlDisplay} (${u.error || `${contentLength} chars`})\n`;
 					}
-					if (selected.urls.length > 10) {
-						info += `... and ${selected.urls.length - 10} more\n`;
+					if (urlItems.length > 10) {
+						info += `... and ${urlItems.length - 10} more\n`;
 					}
 				}
 				ctx.ui.notify(info, "info");

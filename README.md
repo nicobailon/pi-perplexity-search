@@ -148,7 +148,7 @@ fetch_content({ url: "https://example.com/diagram.png" })
 
 ### get_search_content
 
-Retrieve stored content from previous searches or fetches. Fetched URL content is stored in full, including when `fetch_content` uses answer mode. Use `findText` to locate bounded matching passages without paging through a large page, or use `offset` and `limit` to retrieve slices intentionally.
+Retrieve stored content from previous searches or fetches. Fetched URL content is stored in full in a private `web-search-cache` directory under the Pi config directory, not in the session JSONL. This includes `fetch_content` answer mode, which stores the original page content. Cache entries use the same one-hour lifetime as in-session result IDs. Use `findText` to locate bounded matching passages without paging through a large page, or use `offset` and `limit` to retrieve slices intentionally.
 
 ```typescript
 get_search_content({ responseId: "abc123", urlIndex: 0 })
