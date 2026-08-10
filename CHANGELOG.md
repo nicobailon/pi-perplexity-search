@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added per-tool and per-command registration gates plus image and PDF extraction gates. Thanks @jaudiger for issue #234.
+- Added `summaryGenerationDeadlineMs` to configure the summary model deadline for curator and auto-summary workflows. Thanks @cataldoc for issue #237.
 
 ### Fixed
 - Store full fetched content in an external cache instead of embedding it in session JSONL entries, preventing large search-heavy sessions from ballooning on restore. Thanks Igor Samokhovets (`@samohovets`) for issue #236.

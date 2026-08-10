@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +9,9 @@ import { after, test } from "node:test";
 import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "../summary-model-scope.ts";
 import { generateSummaryDraft, SUMMARY_GENERATION_DEADLINE_MS } from "../summary-review.ts";
 
+const indexUrl = new URL("../index.ts", import.meta.url).href;
 const indexSrc = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
+const readmeSrc = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const summarySrc = readFileSync(new URL("../summary-review.ts", import.meta.url), "utf8");
 
 function summaryContext() {
@@ -231,6 +234,40 @@ test("summary generation has a hard deadline and preserves caller cancellation",
 	assert.match(summarySrc, /Promise\.race\(contenders\)/);
 	assert.match(summarySrc, /deadlineController\.abort\(\)/);
 	assert.match(summarySrc, /void operation\.then\(\(\) => undefined, \(\) => undefined\)/);
+});
+
+async function summaryGenerationDeadline(config) {
+	const configDir = await mkdtemp(join(tmpdir(), "pi-web-access-summary-deadline-config-"));
+	try {
+		if (config !== undefined) await writeFile(join(configDir, "web-search.json"), JSON.stringify(config));
+		const child = spawnSync(process.execPath, ["--input-type=module"], {
+			input: `
+				process.env.PI_CODING_AGENT_DIR = ${JSON.stringify(configDir)};
+				const { getSummaryGenerationDeadlineMs } = await import(${JSON.stringify(indexUrl)});
+				console.log(getSummaryGenerationDeadlineMs());
+			`,
+			encoding: "utf8",
+			env: { ...process.env, PI_CODING_AGENT_DIR: configDir },
+		});
+		assert.equal(child.status, 0, child.stderr);
+		return Number(child.stdout.trim());
+	} finally {
+		await rm(configDir, { recursive: true, force: true });
+	}
+}
+
+test("summary generation deadline config defaults, validates, caps, and reaches both workflows", async () => {
+	assert.equal(await summaryGenerationDeadline(undefined), 30_000);
+	assert.equal(await summaryGenerationDeadline({ summaryGenerationDeadlineMs: 150_000 }), 150_000);
+	assert.equal(await summaryGenerationDeadline({ summaryGenerationDeadlineMs: 0 }), 30_000);
+	assert.equal(await summaryGenerationDeadline({ summaryGenerationDeadlineMs: 1.5 }), 30_000);
+	assert.equal(await summaryGenerationDeadline({ summaryGenerationDeadlineMs: "150000" }), 30_000);
+	assert.equal(await summaryGenerationDeadline({ summaryGenerationDeadlineMs: 600_001 }), 600_000);
+	assert.match(indexSrc, /const MAX_SUMMARY_GENERATION_DEADLINE_MS = 600_000/);
+	assert.match(indexSrc, /generateSummaryDraft\(\s*selectedResults,\s*summaryContext,\s*signal,\s*modelOverride,\s*feedback,\s*undefined,\s*getSummaryGenerationDeadlineMs\(\),\s*\)/);
+	assert.equal((indexSrc.match(/getSummaryGenerationDeadlineMs\(\)/g) ?? []).length, 3);
+	assert.match(readmeSrc, /"summaryGenerationDeadlineMs": 30000/);
+	assert.match(readmeSrc, /summaryGenerationDeadlineMs.*capped at `600000`/);
 });
 
 test("summary generation no longer uses catalog fallback or first available model", () => {

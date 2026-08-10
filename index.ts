@@ -27,6 +27,7 @@ import { startCuratorServer, type CuratorSearchEntry, type CuratorServerHandle, 
 import {
 	buildDeterministicSummary,
 	generateSummaryDraft,
+	SUMMARY_GENERATION_DEADLINE_MS,
 	type SummaryGenerationContext,
 	type SummaryMeta,
 } from "./summary-review.ts";
@@ -122,6 +123,7 @@ interface WebSearchConfig {
 	autoOpenBrowser?: unknown;
 	curatorRemote?: unknown;
 	summaryModel?: string;
+	summaryGenerationDeadlineMs?: unknown;
 	webSearch?: {
 		enabled?: boolean;
 	};
@@ -227,6 +229,7 @@ const DEFAULT_SHORTCUTS = { curate: "ctrl+shift+s", activity: "ctrl+shift+w" } s
 const DEFAULT_CURATOR_TIMEOUT_SECONDS = 20;
 const DEFAULT_REMOTE_CURATOR_TIMEOUT_SECONDS = 60;
 const MAX_CURATOR_TIMEOUT_SECONDS = 600;
+const MAX_SUMMARY_GENERATION_DEADLINE_MS = 600_000;
 
 function searchProviderSchema(description: string) {
 	return Type.Union([
@@ -350,6 +353,14 @@ function getCuratorTimeoutSeconds(): number {
 	if (explicit !== undefined) return explicit;
 	// Remote users must notice and click a printed link, so allow more idle time.
 	return resolveCuratorNetworkConfig().enabled ? DEFAULT_REMOTE_CURATOR_TIMEOUT_SECONDS : DEFAULT_CURATOR_TIMEOUT_SECONDS;
+}
+
+export function getSummaryGenerationDeadlineMs(): number {
+	const value = loadConfig().summaryGenerationDeadlineMs;
+	if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+		return SUMMARY_GENERATION_DEADLINE_MS;
+	}
+	return Math.min(value, MAX_SUMMARY_GENERATION_DEADLINE_MS);
 }
 
 function shouldAutoOpenCuratorBrowser(config: WebSearchConfig): boolean {
@@ -1095,7 +1106,15 @@ export default function (pi: ExtensionAPI) {
 			throw new Error("No selected results available for summary generation");
 		}
 		try {
-			return await generateSummaryDraft(selectedResults, summaryContext, signal, modelOverride, feedback);
+			return await generateSummaryDraft(
+				selectedResults,
+				summaryContext,
+				signal,
+				modelOverride,
+				feedback,
+				undefined,
+				getSummaryGenerationDeadlineMs(),
+			);
 		} catch (err) {
 			const isEmptyResponse = err instanceof Error && err.message.includes("Summary model returned empty response");
 			if (!isEmptyResponse) throw err;
@@ -1889,7 +1908,15 @@ export default function (pi: ExtensionAPI) {
 					isProjectTrusted: () => ctx.isProjectTrusted(),
 				};
 				const summaryModelChoices = await loadSummaryModelChoices(summaryContext);
-				const generated = await generateSummaryDraft(searchResults, summaryContext, signal, summaryModelChoices.defaultSummaryModel ?? undefined);
+				const generated = await generateSummaryDraft(
+					searchResults,
+					summaryContext,
+					signal,
+					summaryModelChoices.defaultSummaryModel ?? undefined,
+					undefined,
+					undefined,
+					getSummaryGenerationDeadlineMs(),
+				);
 				approvedSummary = generated.summary;
 				summaryMeta = generated.meta;
 			}
