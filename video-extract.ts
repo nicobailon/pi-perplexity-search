@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve, extname, basename, join, dirname } from "node:path";
 import { activityMonitor } from "./activity.ts";
+import { canAttachImages } from "./feature-config.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { queryGeminiApiWithVideo, getApiKey, fetchGeminiApi, getVersionedApiBase, getUploadBase, redactGeminiApiResponse } from "./gemini-api.ts";
 import { extractHeadingTitle, type ExtractedContent, type ExtractOptions, type FrameResult } from "./extract.ts";
@@ -181,9 +182,11 @@ export async function extractVideo(
 		?? await tryVideoGeminiWeb(info, effectivePrompt, effectiveModel, signal);
 
 	if (result) {
-		const thumbnail = await extractVideoFrame(info.absolutePath);
-		if (!("error" in thumbnail)) {
-			result.thumbnail = thumbnail;
+		if (canAttachImages()) {
+			const thumbnail = await extractVideoFrame(info.absolutePath);
+			if (!("error" in thumbnail)) {
+				result.thumbnail = thumbnail;
+			}
 		}
 		activityMonitor.logComplete(activityId, 200);
 		return result;

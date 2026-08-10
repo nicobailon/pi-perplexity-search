@@ -357,6 +357,21 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
   "webSearch": {
     "enabled": true
   },
+  "tools": {
+    "webSearch": { "enabled": true },
+    "sourceCheck": { "enabled": true },
+    "fetchContent": { "enabled": true },
+    "getSearchContent": { "enabled": true }
+  },
+  "commands": {
+    "websearch": { "enabled": true },
+    "curator": { "enabled": true },
+    "search": { "enabled": true },
+    "google-account": { "enabled": true }
+  },
+  "image": {
+    "enabled": true
+  },
   "chromeProfile": "Profile 2",
   "allowBrowserCookies": false,
   "searchModel": "gemini-3.6-flash",
@@ -384,6 +399,7 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
     "maxSizeMB": 50
   },
   "pdf": {
+    "enabled": true,
     "maxSizeMB": 20,
     "provider": "auto"
   },
@@ -768,7 +784,7 @@ Both shortcuts are configurable via `~/.pi/web-search.json`:
 
 Values use the same format as pi keybindings (e.g. `ctrl+s`, `ctrl+shift+s`, `alt+r`). Changes take effect on next pi restart.
 
-Set `"enabled": false` under any feature to disable it. For GitHub specifically, `githubClone.enabled: false` only skips clone/API specialization; it does not unregister `fetch_content` or block generic URL extraction. Config changes require a Pi restart.
+Set `"enabled": false` under `tools`, `commands`, `image`, or `pdf` to disable that feature. Tool-specific settings override the legacy `webSearch.enabled` shorthand; without an override, it still disables `web_search` and `source_check`. `image.enabled: false` blocks direct image fetches and video frame extraction, and prevents video thumbnails. `pdf.enabled: false` blocks PDF extraction. For GitHub specifically, `githubClone.enabled: false` only skips clone/API specialization; it does not unregister `fetch_content` or block generic URL extraction. Pi restart is required for tool and command registration changes.
 
 Rate limits: Perplexity is capped at 10 requests/minute (client-side). Jina Search, TinyFish, Search1API, and Searchinfinity apply the plan limits documented by their APIs. Querit Search and Contents subscriptions are independent. Content fetches run 3 concurrent with a 30s timeout for the direct HTTP fetch of each URL. Remote extraction fallbacks carry their own budgets and are not covered by that number: Jina Reader 30s, Firecrawl 60s, Kagi Extract 60s, Ollama Web Fetch 60s, Bright Data Web Unlocker 60s, TinyFish up to 150s, Gemini 120s, Datalab 120s (capped at 300s, rate-limited to 25 requests/minute on the free tier). `pdf.maxSizeMB` defaults to 20 and is capped at 50.
 

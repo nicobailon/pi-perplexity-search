@@ -23,11 +23,12 @@ import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } f
 import { appendDeclaredWebLinks, discoverDeclaredWebLinks, type DeclaredWebLink } from "./declared-web-links.ts";
 import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
 import { formatSeconds, getWebSearchConfigPath } from "./utils.ts";
+import { isImageEnabled } from "./feature-config.ts";
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const CONCURRENT_LIMIT = 3;
 
-const NON_RECOVERABLE_ERRORS = ["Unsupported content type", "Response too large"];
+const NON_RECOVERABLE_ERRORS = ["Unsupported content type", "Response too large", "PDF extraction is disabled", "Image fetching is disabled"];
 const MIN_USEFUL_CONTENT = 500;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
@@ -63,6 +64,14 @@ function isRedirectPolicyError(message: string): boolean {
 		message === "Only HTTP and HTTPS URLs can be fetched remotely" ||
 		message === "URL must include a hostname" ||
 		message.startsWith("Failed to resolve ");
+}
+
+function imageGateError(): string | null {
+	try {
+		return isImageEnabled() ? null : "Image fetching is disabled by image.enabled";
+	} catch (err) {
+		return errorMessage(err);
+	}
 }
 
 function loadFetchRouting(): FetchRouting {
@@ -346,6 +355,11 @@ export async function extractContent(
 		return extractViaHttp(url, signal, options);
 	}
 
+	if (options?.frames || options?.timestamp) {
+		const disabled = imageGateError();
+		if (disabled) return { url, title: "", content: "", error: disabled };
+	}
+
 	if (options?.frames && !options.timestamp) {
 		const frameCount = options.frames;
 		const ytInfo = isYouTubeURL(url);
@@ -573,7 +587,7 @@ export async function extractContent(
 		declaredLinks = discoveredLinks;
 		if (signal?.aborted) return abortedResult(url);
 		if (!httpResult.error) return httpResult;
-		if (NON_RECOVERABLE_ERRORS.some(prefix => httpResult!.error!.startsWith(prefix)) || isRedirectPolicyError(httpResult.error)) {
+		if (NON_RECOVERABLE_ERRORS.some(prefix => httpResult!.error!.startsWith(prefix)) || isRedirectPolicyError(httpResult.error) || isConfigParseError(httpResult.error)) {
 			return httpResult;
 		}
 		return null;
@@ -940,6 +954,10 @@ async function extractViaHttp(
 		const mimeType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
 		const isPDFContent = isPDF(url, contentType);
 		const pdfConfig = isPDFContent ? loadPDFConfig() : null;
+		if (isPDFContent && pdfConfig && !pdfConfig.enabled) {
+			activityMonitor.logComplete(activityId, response.status);
+			return { url, title: "", content: "", error: "PDF extraction is disabled by pdf.enabled", mimeType, status: response.status };
+		}
 		const maxResponseSize = (pdfConfig?.maxSizeMB ?? 5) * 1024 * 1024;
 		if (contentLengthHeader) {
 			const contentLength = Number.parseInt(contentLengthHeader, 10);
@@ -967,6 +985,11 @@ async function extractViaHttp(
 		}
 
 		if (SUPPORTED_IMAGE_TYPES.has(mimeType)) {
+			const disabled = imageGateError();
+			if (disabled) {
+				activityMonitor.logComplete(activityId, response.status);
+				return { url, title: "", content: "", error: disabled, mimeType, status: response.status };
+			}
 			try {
 				const buffer = await readResponseBufferWithLimit(response, maxResponseSize, () => responseSizeLimitError(maxResponseSize));
 				const resized = await resizeImage(new Uint8Array(buffer), mimeType, { maxWidth: 2000, maxHeight: 2000 });

@@ -8,6 +8,16 @@ import { readPDFResponseBuffer } from "../extract.ts";
 
 const pdfModuleUrl = new URL("../pdf-extract.ts", import.meta.url).href;
 
+test("pdf.enabled defaults to true and accepts false", () => {
+	assert.equal(readConfig(undefined).enabled, true);
+	assert.equal(readConfig({ pdf: { enabled: false } }).enabled, false);
+	assert.equal(readConfig({ pdf: { enabled: "false" } }).enabled, true);
+});
+
+test("pdf config reloads after the config file changes", () => {
+	assert.deepEqual(readConfigSequence([{ pdf: { enabled: false } }, { pdf: { enabled: true } }]), [false, true]);
+});
+
 test("pdf.maxSizeMB defaults to 20 and accepts values through 50", () => {
 	assert.equal(readConfig(undefined).maxSizeMB, 20);
 	assert.equal(readConfig({ pdf: { maxSizeMB: 30 } }).maxSizeMB, 30);
@@ -88,17 +98,27 @@ test("PDF streamed byte enforcement rejects a headerless response above the limi
 });
 
 function readConfig(config) {
+	return readConfigSequence([config]);
+}
+
+function readConfigSequence(configs) {
 	const configDir = mkdtempSync(join(tmpdir(), "pi-web-access-pdf-config-"));
 	try {
-		if (config !== undefined) {
-			writeFileSync(join(configDir, "web-search.json"), JSON.stringify(config));
-		}
 		const child = spawnSync(process.execPath, ["--input-type=module"], {
 			input: `
+				import { writeFileSync } from "node:fs";
+				import { join } from "node:path";
 				process.env.PI_CODING_AGENT_DIR = ${JSON.stringify(configDir)};
 				delete process.env.DATALAB_MODE;
+				const configs = ${JSON.stringify(configs)};
 				const { loadPDFConfig } = await import(${JSON.stringify(pdfModuleUrl)});
-				console.log(JSON.stringify(loadPDFConfig()));
+				const values = [];
+				for (const config of configs) {
+					if (config !== null) writeFileSync(join(${JSON.stringify(configDir)}, "web-search.json"), JSON.stringify(config));
+					values.push(loadPDFConfig().enabled);
+				}
+				if (configs.length === 1) console.log(JSON.stringify(loadPDFConfig()));
+				else console.log(JSON.stringify(values));
 			`,
 			encoding: "utf8",
 			env: { ...process.env, PI_CODING_AGENT_DIR: configDir },

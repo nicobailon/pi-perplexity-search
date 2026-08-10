@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added per-tool and per-command registration gates plus image and PDF extraction gates. Thanks @jaudiger for issue #234.
+
 ### Fixed
 - Document `get_search_content` parameter constraints in the tool schema. Thanks `@iwangjie` for PR #233.
 

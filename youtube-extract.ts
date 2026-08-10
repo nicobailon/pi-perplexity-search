@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { activityMonitor } from "./activity.ts";
+import { canAttachImages } from "./feature-config.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { isGeminiApiAvailable, queryGeminiApiWithVideo } from "./gemini-api.ts";
 import { isPerplexityAvailable, searchWithPerplexity } from "./perplexity.ts";
@@ -116,7 +117,7 @@ export async function extractYouTube(
 
 	if (result) {
 		result.url = url;
-		if (!result.error && videoId) {
+		if (!result.error && videoId && canAttachImages()) {
 			const thumb = await fetchYouTubeThumbnail(videoId);
 			if (thumb) result.thumbnail = thumb;
 		}

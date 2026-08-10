@@ -124,6 +124,8 @@ interface WebSearchConfig {
 	webSearch?: {
 		enabled?: boolean;
 	};
+	tools?: Partial<Record<keyof ToolNames, { enabled?: boolean }>>;
+	commands?: Partial<Record<"websearch" | "curator" | "search" | "google-account", { enabled?: boolean }>>;
 	toolNames?: Partial<ToolNames>;
 	shortcuts?: {
 		curate?: KeyId;
@@ -232,6 +234,23 @@ function searchProviderSchema(description: string) {
 	], { description });
 }
 
+function isToolEnabled(config: WebSearchConfig, key: keyof ToolNames): boolean {
+	const override = config.tools?.[key]?.enabled;
+	if (typeof override === "boolean") return override;
+	return key !== "webSearch" && key !== "sourceCheck" || config.webSearch?.enabled !== false;
+}
+
+function isCommandEnabled(config: WebSearchConfig, name: "websearch" | "curator" | "search" | "google-account"): boolean {
+	return config.commands?.[name]?.enabled !== false;
+}
+
+function joinToolNames(names: string[]): string {
+	if (names.length === 0) return "stored content";
+	if (names.length === 1) return names[0];
+	if (names.length === 2) return `${names[0]} or ${names[1]}`;
+	return `${names.slice(0, -1).join(", ")}, or ${names[names.length - 1]}`;
+}
+
 function resolveToolNames(config: WebSearchConfig): ToolNames {
 	if (config.toolNames !== undefined && (!config.toolNames || typeof config.toolNames !== "object" || Array.isArray(config.toolNames))) {
 		throw new Error(`toolNames in ${WEB_SEARCH_CONFIG_PATH} must be an object`);
@@ -247,9 +266,8 @@ function resolveToolNames(config: WebSearchConfig): ToolNames {
 		}
 		names[key] = trimmed;
 	}
-	const registeredKeys: Array<keyof ToolNames> = config.webSearch?.enabled === false
-		? ["fetchContent", "getSearchContent"]
-		: ["webSearch", "sourceCheck", "fetchContent", "getSearchContent"];
+	const registeredKeys = (Object.keys(DEFAULT_TOOL_NAMES) as Array<keyof ToolNames>)
+		.filter(key => isToolEnabled(config, key));
 	const seen = new Map<string, keyof ToolNames>();
 	for (const key of registeredKeys) {
 		const name = names[key];
@@ -572,7 +590,7 @@ function formatSearchSummary(results: SearchResult[], answer: string): string {
 	return output;
 }
 
-function formatSourceCheckResult(artifact: ResearchArtifact, getSearchContentTool = DEFAULT_TOOL_NAMES.getSearchContent): string {
+function formatSourceCheckResult(artifact: ResearchArtifact, getSearchContentTool: string | null = DEFAULT_TOOL_NAMES.getSearchContent): string {
 	const assessment = artifact.claims?.[0];
 	const lines = [`# Source check: ${artifact.query}`, ""];
 	if (assessment) {
@@ -588,7 +606,9 @@ function formatSourceCheckResult(artifact: ResearchArtifact, getSearchContentToo
 		lines.push("");
 	}
 	if (artifact.errors?.length) lines.push(`Search errors: ${artifact.errors.map((entry) => `${entry.query}: ${entry.error}`).join("; ")}`);
-	lines.push(`Artifact responseId: ${artifact.id} (retrievable via ${getSearchContentTool}).`);
+	lines.push(getSearchContentTool
+		? `Artifact responseId: ${artifact.id} (retrievable via ${getSearchContentTool}).`
+		: `Artifact responseId: ${artifact.id}. Content retrieval is not registered.`);
 	return lines.join("\n");
 }
 
@@ -868,12 +888,21 @@ function handleSessionChange(ctx: ExtensionContext): void {
 export default function (pi: ExtensionAPI) {
 	const initConfig = loadConfigForExtensionInit();
 	const toolNames = resolveToolNames(initConfig);
-	const storedContentSources = initConfig.webSearch?.enabled === false
-		? toolNames.fetchContent
-		: `${toolNames.webSearch}, ${toolNames.sourceCheck}, or ${toolNames.fetchContent}`;
-	const searchQueryDescription = initConfig.webSearch?.enabled === false
-		? "Get content for a stored search query"
-		: `Get content for this query (${toolNames.webSearch})`;
+	const webSearchEnabled = isToolEnabled(initConfig, "webSearch");
+	const sourceCheckEnabled = isToolEnabled(initConfig, "sourceCheck");
+	const fetchContentEnabled = isToolEnabled(initConfig, "fetchContent");
+	const getSearchContentEnabled = isToolEnabled(initConfig, "getSearchContent");
+	const storedContentSources = joinToolNames([
+		...(webSearchEnabled ? [toolNames.webSearch] : []),
+		...(sourceCheckEnabled ? [toolNames.sourceCheck] : []),
+		...(fetchContentEnabled ? [toolNames.fetchContent] : []),
+	]);
+	const searchQueryDescription = webSearchEnabled
+		? `Get content for this query (${toolNames.webSearch})`
+		: "Get content for a stored search query";
+	const fetchContentStorageNote = getSearchContentEnabled
+		? `Full original content is stored for retrieval with ${toolNames.getSearchContent}.`
+		: "Full original content is stored internally, but the retrieval tool is not registered.";
 	const curateKey = initConfig.shortcuts?.curate || DEFAULT_SHORTCUTS.curate;
 	const activityKey = initConfig.shortcuts?.activity || DEFAULT_SHORTCUTS.activity;
 
@@ -1570,7 +1599,7 @@ export default function (pi: ExtensionAPI) {
 		widgetVisible = false;
 	});
 
-	if (initConfig.webSearch?.enabled !== false) pi.registerTool({
+	if (webSearchEnabled) pi.registerTool({
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
@@ -2134,7 +2163,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	if (initConfig.webSearch?.enabled !== false) pi.registerTool({
+	if (sourceCheckEnabled) pi.registerTool({
 		name: toolNames.sourceCheck,
 		label: "Source Check",
 		description: "Check a claim against web sources and return a bounded machine-readable research artifact with exact passage citations.",
@@ -2222,16 +2251,16 @@ export default function (pi: ExtensionAPI) {
 				artifact,
 			});
 			return {
-				content: [{ type: "text", text: formatSourceCheckResult(artifact, toolNames.getSearchContent) }],
+				content: [{ type: "text", text: formatSourceCheckResult(artifact, getSearchContentEnabled ? toolNames.getSearchContent : null) }],
 				details: { responseId: artifact.id, artifact, sourceCount: artifact.sources.length, passageCount: artifact.passages.length },
 			};
 		},
 	});
 
-	pi.registerTool({
+	if (fetchContentEnabled) pi.registerTool({
 		name: toolNames.fetchContent,
 		label: "Fetch Content",
-		description: `Fetch URL(s) and extract readable content as markdown. Use mode "raw" for exact textual HTTP response bodies or mode "answer" with prompt to answer using only fetched content. Direct image URLs return resized image content. Supports YouTube transcripts, GitHub repositories, PDFs, and local videos. Full original content is stored for retrieval with ${toolNames.getSearchContent}.`,
+		description: `Fetch URL(s) and extract readable content as markdown. Use mode "raw" for exact textual HTTP response bodies or mode "answer" with prompt to answer using only fetched content. Direct image URLs return resized image content. Supports YouTube transcripts, GitHub repositories, PDFs, and local videos. ${fetchContentStorageNote}`,
 		promptSnippet:
 			"Use to fetch readable or raw URL content, direct images, GitHub repos, and videos. Mode answer answers a prompt using only the fetched source.",
 		parameters: Type.Object({
@@ -2353,8 +2382,10 @@ export default function (pi: ExtensionAPI) {
 				let output = slice.text;
 
 				if (truncated) {
-					output += `\n\n---\nShowing ${slice.endOffset} of ${fullLength} chars, ${slice.shownBytes} of ${slice.totalBytes} bytes, and ${slice.shownLines} of ${slice.totalLines} lines. ` +
-						`Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`;
+					output += `\n\n---\nShowing ${slice.endOffset} of ${fullLength} chars, ${slice.shownBytes} of ${slice.totalBytes} bytes, and ${slice.shownLines} of ${slice.totalLines} lines. `;
+					output += getSearchContentEnabled
+						? `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`
+						: "Content retrieval is not registered.";
 				}
 
 				const content: Array<TextContent | ImageContent> = [];
@@ -2405,7 +2436,9 @@ export default function (pi: ExtensionAPI) {
 					output += `- ${title || url} (${content.length} chars)\n`;
 				}
 			}
-			output += `\n---\nUse ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`;
+			output += getSearchContentEnabled
+				? `\n---\nUse ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`
+				: "\n---\nContent retrieval is not registered.";
 
 			return {
 				content: [{ type: "text", text: output }],
@@ -2533,7 +2566,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const countColor = (details?.successful ?? 0) > 0 ? "success" : "error";
-			const statusLine = theme.fg(countColor, `${details?.successful}/${details?.urlCount} URLs`) + theme.fg("muted", " (content stored)");
+			const statusLine = theme.fg(countColor, `${details?.successful}/${details?.urlCount} URLs`) + theme.fg("muted", getSearchContentEnabled ? " (content stored)" : " (content fetched)");
 			if (!expanded) {
 				return new Text(statusLine, 0, 0);
 			}
@@ -2543,7 +2576,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	if (getSearchContentEnabled) pi.registerTool({
 		name: toolNames.getSearchContent,
 		label: "Get Search Content",
 		description: `Retrieve bounded content slices or find matching passages in a previous ${storedContentSources} call.`,
@@ -2842,7 +2875,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("websearch", {
+	if (isCommandEnabled(initConfig, "websearch")) pi.registerCommand("websearch", {
 		description: "Open web search curator",
 		handler: async (args, ctx) => {
 			const sessionToken = randomUUID();
@@ -3103,7 +3136,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("curator", {
+	if (isCommandEnabled(initConfig, "curator")) pi.registerCommand("curator", {
 		description: "Toggle or configure the search curator workflow",
 		handler: async (args, ctx) => {
 			const arg = args.trim().toLowerCase();
@@ -3145,7 +3178,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("google-account", {
+	if (isCommandEnabled(initConfig, "google-account")) pi.registerCommand("google-account", {
 		description: "Show the active Google account for Gemini Web",
 		handler: async () => {
 			if (!isBrowserCookieAccessAllowed()) {
@@ -3187,7 +3220,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("search", {
+	if (isCommandEnabled(initConfig, "search")) pi.registerCommand("search", {
 		description: "Browse stored web search results",
 		handler: async (_args, ctx) => {
 			const results = getAllResults();

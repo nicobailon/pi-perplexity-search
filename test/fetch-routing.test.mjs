@@ -6,16 +6,22 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 const extractUrl = new URL("../extract.ts", import.meta.url).href;
+const featureConfigUrl = new URL("../feature-config.ts", import.meta.url).href;
 
-async function runExtract(config) {
-	const root = await mkdtemp(join(tmpdir(), "pi-fetch-routing-"));
-	await writeFile(join(root, "web-search.json"), JSON.stringify(config) + "\n", "utf8");
+function cleanProviderEnv(root) {
 	const childEnv = { ...process.env, PI_CODING_AGENT_DIR: root, HOME: root, USERPROFILE: root };
 	for (const key of [
 		"FIRECRAWL_BASE_URL", "FIRECRAWL_API_KEY", "PARALLEL_API_KEY", "TINYFISH_API_KEY",
 		"SEARCH1API_KEY", "SEARCH1API_API_KEY", "QUERIT_API_KEY", "KAGI_API_KEY", "OLLAMA_API_KEY",
 		"BRIGHTDATA_API_KEY", "BRIGHTDATA_UNLOCKER_ZONE", "GEMINI_API_KEY", "GOOGLE_GEMINI_API_KEY", "GOOGLE_API_KEY",
 	]) delete childEnv[key];
+	return childEnv;
+}
+
+async function runExtract(config) {
+	const root = await mkdtemp(join(tmpdir(), "pi-fetch-routing-"));
+	await writeFile(join(root, "web-search.json"), JSON.stringify(config) + "\n", "utf8");
+	const childEnv = cleanProviderEnv(root);
 
 	const child = spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
@@ -30,6 +36,36 @@ async function runExtract(config) {
 			};
 			const { extractContent } = await import(${JSON.stringify(extractUrl)});
 			const result = await extractContent("https://example.com/routed", undefined, { lookup: async () => [{ address: "93.184.216.34", family: 4 }] });
+			console.log(JSON.stringify({ calls, result }));
+		`,
+		encoding: "utf8",
+		env: childEnv,
+		maxBuffer: 2 * 1024 * 1024,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	return JSON.parse(child.stdout.trim());
+}
+
+async function runTypedExtract(config, contentType) {
+	const root = await mkdtemp(join(tmpdir(), "pi-fetch-routing-typed-"));
+	await writeFile(join(root, "web-search.json"), typeof config === "string" ? config : JSON.stringify(config) + "\n", "utf8");
+	const childEnv = cleanProviderEnv(root);
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const calls = [];
+			globalThis.fetch = async (url) => {
+				const text = String(url);
+				calls.push(text);
+				if (text === "https://example.com/typed") {
+					return new Response("typed", { status: 200, headers: { "content-type": ${JSON.stringify(contentType)} } });
+				}
+				if (text.startsWith("https://r.jina.ai/")) {
+					return new Response("Markdown Content:\\n# Bypassed\\n\\n" + "content ".repeat(80), { status: 200 });
+				}
+				throw new Error("Unexpected fetch " + text);
+			};
+			const { extractContent } = await import(${JSON.stringify(extractUrl)});
+			const result = await extractContent("https://example.com/typed", undefined, { lookup: async () => [{ address: "93.184.216.34", family: 4 }] });
 			console.log(JSON.stringify({ calls, result }));
 		`,
 		encoding: "utf8",
@@ -64,6 +100,44 @@ test("fetchRouting without providers uses the default order when remote hosted p
 	]);
 	assert.equal(output.result.error, null);
 	assert.equal(output.result.title, "Routed");
+});
+
+test("disabled image fetching does not fall through to hosted providers", async () => {
+	const output = await runTypedExtract({ image: { enabled: false }, fetchRouting: { providers: ["http", "jina"], allowRemoteHostedProviders: true } }, "image/png");
+	assert.deepEqual(output.calls, ["https://example.com/typed"]);
+	assert.match(output.result.error, /Image fetching is disabled by image\.enabled/);
+});
+
+test("disabled PDF extraction does not fall through to hosted providers", async () => {
+	const output = await runTypedExtract({ pdf: { enabled: false }, fetchRouting: { providers: ["http", "jina"], allowRemoteHostedProviders: true } }, "application/pdf");
+	assert.deepEqual(output.calls, ["https://example.com/typed"]);
+	assert.match(output.result.error, /PDF extraction is disabled by pdf\.enabled/);
+});
+
+test("malformed config returns a parse error without hosted fallback", async () => {
+	const output = await runTypedExtract("{", "image/png");
+	assert.deepEqual(output.calls, []);
+	assert.match(output.result.error, /Failed to parse .*web-search\.json/);
+});
+
+test("image attachment gate suppresses malformed config", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-feature-config-"));
+	await writeFile(join(root, "web-search.json"), "{", "utf8");
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			process.env.PI_CODING_AGENT_DIR = ${JSON.stringify(root)};
+			const { canAttachImages, isImageEnabled } = await import(${JSON.stringify(featureConfigUrl)});
+			let parseError = "";
+			try { isImageEnabled(); } catch (err) { parseError = err instanceof Error ? err.message : String(err); }
+			console.log(JSON.stringify({ canAttach: canAttachImages(), parseError }));
+		`,
+		encoding: "utf8",
+		env: cleanProviderEnv(root),
+	});
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.canAttach, false);
+	assert.match(output.parseError, /Failed to parse .*web-search\.json/);
 });
 
 test("Ollama Web Fetch is disabled for remote URLs without hosted-provider opt-in", async () => {

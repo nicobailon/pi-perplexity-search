@@ -49,6 +49,7 @@ export const PDF_PROVIDER_VALUES = new Set<PDFProvider>([
 ]);
 
 export interface PDFConfig {
+	enabled: boolean;
 	maxSizeMB: number;
 	provider: PDFProvider;
 	datalabMode: DatalabMode;
@@ -63,18 +64,15 @@ const DEFAULT_OUTPUT_DIR = join(tmpdir(), "pi-web-pdf");
 const CONFIG_PATH = getWebSearchConfigPath();
 const PAGE_MARKER_PATTERN = /^<!-- Page (\d+) -->$/gm;
 
-let cachedPDFConfig: PDFConfig | null = null;
-
 export function loadPDFConfig(): PDFConfig {
-	if (cachedPDFConfig) return { ...cachedPDFConfig };
 	if (!existsSync(CONFIG_PATH)) {
-		cachedPDFConfig = {
+		return {
+			enabled: true,
 			maxSizeMB: DEFAULT_PDF_MAX_SIZE_MB,
 			provider: "auto",
 			datalabMode: normalizeDatalabMode(process.env.DATALAB_MODE),
 			datalabTimeoutMs: DEFAULT_DATALAB_TIMEOUT_MS,
 		};
-		return { ...cachedPDFConfig };
 	}
 
 	const rawText = readFileSync(CONFIG_PATH, "utf-8");
@@ -92,6 +90,7 @@ export function loadPDFConfig(): PDFConfig {
 		root.pdf && typeof root.pdf === "object"
 			? (root.pdf as Record<string, unknown>)
 			: {};
+	const enabled = pdf.enabled !== false;
 	const configured = pdf.maxSizeMB;
 	const normalized =
 		typeof configured === "number" &&
@@ -118,13 +117,13 @@ export function loadPDFConfig(): PDFConfig {
 			? Math.min(configuredTimeout, MAX_DATALAB_TIMEOUT_MS)
 			: DEFAULT_DATALAB_TIMEOUT_MS;
 
-	cachedPDFConfig = {
+	return {
+		enabled,
 		maxSizeMB: normalized,
 		provider,
 		datalabMode,
 		datalabTimeoutMs,
 	};
-	return { ...cachedPDFConfig };
 }
 
 async function getUnpdf() {
