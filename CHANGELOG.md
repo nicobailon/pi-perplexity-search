@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Document `get_search_content` parameter constraints in the tool schema. Thanks `@iwangjie` for PR #233.
+
 ## [0.20.0] - 2026-08-10
 
 ### Added
