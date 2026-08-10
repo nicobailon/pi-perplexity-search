@@ -115,9 +115,9 @@ export function getDatalabProcessingLocation(): DatalabProcessingLocation {
 
 export function normalizeDatalabMode(value: unknown): DatalabMode {
 	const raw = normalizeString(value);
-	const normalized = raw ? (raw.toLowerCase() as DatalabMode) : null;
-	if (normalized && DATALAB_MODE_VALUES.has(normalized)) return normalized;
-	if (normalized === null) return DEFAULT_DATALAB_MODE;
+	if (!raw) return DEFAULT_DATALAB_MODE;
+	const normalized = raw.toLowerCase() as DatalabMode;
+	if (DATALAB_MODE_VALUES.has(normalized)) return normalized;
 	throw new Error(
 		`Failed to parse datalab mode: expected "fast", "balanced", or "accurate", got "${value}"`,
 	);
@@ -201,8 +201,10 @@ export async function extractPDFViaDatalab(
 	const processingLocation =
 		options.processingLocation ?? getDatalabProcessingLocation();
 	const timeoutMs =
-		Number.isFinite(options.timeoutMs) && (options.timeoutMs ?? 0) > 0
-			? Math.floor(options.timeoutMs ?? 0)
+		typeof options.timeoutMs === "number" &&
+		Number.isFinite(options.timeoutMs) &&
+		options.timeoutMs > 0
+			? Math.floor(options.timeoutMs)
 			: DEFAULT_TIMEOUT_MS;
 	const deadline = Date.now() + timeoutMs;
 
@@ -315,11 +317,9 @@ export async function extractPDFViaDatalab(
 
 		throw new Error("Datalab PDF conversion timed out");
 	} finally {
-		if (fileId !== undefined && fileId !== null) {
-			// File deletion is best-effort. Do not extend a caller's timeout or
-			// cancellation while waiting for a remote cleanup request.
-			void deleteDatalabFile(apiKey, String(fileId));
-		}
+		// File deletion is best-effort. Do not extend a caller's timeout or
+		// cancellation while waiting for a remote cleanup request.
+		void deleteDatalabFile(apiKey, fileId);
 	}
 }
 
@@ -348,7 +348,7 @@ async function requestUploadUrl(options: {
 		},
 		apiKey,
 	);
-	return readJsonResponse(response, apiKey) as Promise<DatalabUploadRequest>;
+	return readJsonResponse(response, apiKey);
 }
 
 async function confirmUpload(
@@ -366,7 +366,7 @@ async function confirmUpload(
 		},
 		apiKey,
 	);
-	return readJsonResponse(response, apiKey) as Promise<DatalabConfirmResponse>;
+	return readJsonResponse(response, apiKey);
 }
 
 async function deleteDatalabFile(
@@ -506,11 +506,20 @@ async function readJsonResponse(
 			: `Datalab PDF conversion failed: HTTP ${response.status} ${response.statusText}`;
 		throw new Error(redactCredential(message, apiKey));
 	}
+	return parseJsonRecord(text);
+}
+
+function parseJsonRecord(text: string): Record<string, unknown> {
+	let parsed: unknown;
 	try {
-		return JSON.parse(text) as Record<string, unknown>;
-	} catch {
-		throw new Error("Datalab PDF conversion returned invalid JSON");
+		parsed = JSON.parse(text);
+	} catch (error) {
+		throw new Error("Datalab PDF conversion returned invalid JSON", { cause: error });
 	}
+	if (Object.prototype.toString.call(parsed) !== "[object Object]") {
+		throw new Error("Datalab PDF conversion returned invalid JSON object");
+	}
+	return parsed as Record<string, unknown>;
 }
 
 async function readResponseText(response: Response): Promise<string> {

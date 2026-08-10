@@ -121,3 +121,19 @@ test("resolveGeminiFetch falls back to the ambient global fetch when undici is n
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("resolveGeminiFetch surfaces dedicated agent construction errors", () => {
+	const env = { ...process.env, HTTPS_PROXY: "not a url" };
+	const script = [
+		`import { resolveGeminiFetch } from ${JSON.stringify(new URL("../gemini-web.ts", import.meta.url).href)};`,
+		"await resolveGeminiFetch();",
+	].join("\n");
+	const result = spawnSync(process.execPath, ["--input-type=module"], {
+		input: script,
+		encoding: "utf8",
+		env,
+	});
+
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /Invalid URL/);
+});

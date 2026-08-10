@@ -41,7 +41,7 @@ let geminiFetchImpl: typeof fetch | null = null;
 // globalThis.fetch patching is no longer a reliable way to intercept these
 // requests.
 export function setGeminiFetchOverrideForTests(fetchImpl: typeof fetch | null): void {
-geminiFetchOverride = fetchImpl;
+	geminiFetchOverride = fetchImpl;
 }
 
 let geminiFetchOverride: typeof fetch | null = null;
@@ -55,34 +55,38 @@ export const GEMINI_MAX_HEADER_SIZE = 4 * 1024 * 1024;
 // header budget than the host agent's global dispatcher allows. Exported for
 // tests so the agent configuration can be asserted without network access.
 export function createGeminiFetch(undiciImpl: typeof import("undici")): typeof fetch {
-const agent = new undiciImpl.EnvHttpProxyAgent({
-	allowH2: false,
-	connectTimeout: 30_000,
-	maxHeaderSize: GEMINI_MAX_HEADER_SIZE,
-	pipelining: 1,
-});
-// undici 8 types its fetch request/response structurally differently from
-// the DOM lib types (duplex/textStream on Request, Symbol.dispose on
-// Headers); the shape this module uses (status, ok, headers.get, text) is
-// identical, so bridge the two.
-type UndiciFetch = typeof undiciImpl.fetch;
-return (input, init) =>
-undiciImpl.fetch(
-input as unknown as Parameters<UndiciFetch>[0],
-{ ...init, dispatcher: agent } as unknown as Parameters<UndiciFetch>[1],
-) as unknown as Promise<Response>;
+	const agent = new undiciImpl.EnvHttpProxyAgent({
+		allowH2: false,
+		connectTimeout: 30_000,
+		maxHeaderSize: GEMINI_MAX_HEADER_SIZE,
+		pipelining: 1,
+	});
+	// undici 8 types its fetch request/response structurally differently from
+	// the DOM lib types (duplex/textStream on Request, Symbol.dispose on
+	// Headers); the shape this module uses (status, ok, headers.get, text) is
+	// identical, so bridge the two.
+	type UndiciFetch = typeof undiciImpl.fetch;
+	return (input, init) =>
+		undiciImpl.fetch(
+			input as unknown as Parameters<UndiciFetch>[0],
+			{ ...init, dispatcher: agent } as unknown as Parameters<UndiciFetch>[1],
+		) as unknown as Promise<Response>;
 }
 
 export async function resolveGeminiFetch(): Promise<typeof fetch> {
-if (geminiFetchOverride) return geminiFetchOverride;
-if (geminiFetchImpl) return geminiFetchImpl;
-try {
-	const undici = await import("undici");
+	if (geminiFetchOverride) return geminiFetchOverride;
+	if (geminiFetchImpl) return geminiFetchImpl;
+
+	let undici: typeof import("undici");
+	try {
+		undici = await import("undici");
+	} catch {
+		geminiFetchImpl = fetch;
+		return geminiFetchImpl;
+	}
+
 	geminiFetchImpl = createGeminiFetch(undici);
-} catch {
-	geminiFetchImpl = fetch;
-}
-return geminiFetchImpl;
+	return geminiFetchImpl;
 }
 
 export interface GeminiWebOptions {

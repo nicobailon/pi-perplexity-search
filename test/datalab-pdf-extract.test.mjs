@@ -164,6 +164,23 @@ test("Datalab conversion rejects a missing file_id before uploading", async () =
 	);
 });
 
+test("Datalab conversion rejects valid JSON that is not an object", async () => {
+	globalThis.fetch = async (url, init) => {
+		if (String(url).endsWith("/files/upload")) {
+			return new Response("null", {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}
+		return route(url, init);
+	};
+
+	await assert.rejects(
+		extractPDFViaDatalab(new ArrayBuffer(1), { maxPages: 1, title: "Doc" }),
+		/invalid JSON object/,
+	);
+});
+
 test("Datalab conversion returns immediately when the convert response is complete", async () => {
 	let convertCalls = 0;
 	globalThis.fetch = async (url, init) => {
