@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added keyless DuckDuckGo HTML search as an explicit and routing provider. Thanks @lmilojevicc for issue #228.
 - Added Datalab hosted PDF-to-Markdown extraction as an optional PDF provider. Thanks José Antonio Galiano Sandoval (`@jagaliano`) for PR #226.
 
 ### Fixed

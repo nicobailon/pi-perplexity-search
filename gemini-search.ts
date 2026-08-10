@@ -19,13 +19,14 @@ import { isSerpdiveAvailable, searchWithSerpdive } from "./serpdive.ts";
 import { isKagiAvailable, searchWithKagi } from "./kagi.ts";
 import { isOllamaAvailable, searchWithOllama } from "./ollama.ts";
 import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
+import { isDuckDuckGoAvailable, searchWithDuckDuckGo } from "./duckduckgo.ts";
 import { isAnySearchAvailable, searchWithAnySearch } from "./anysearch.ts";
 import { isXaiSearchAvailable, searchWithXai } from "./xai-search.ts";
 import { isBrightDataAvailable, searchWithBrightData } from "./brightdata.ts";
 import { isSerpBaseAvailable, searchWithSerpBase } from "./serpbase.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "jina", "searxng", "perplexity", "gemini", "exa", "serpdive", "kagi", "ollama", "anysearch", "xai", "brightdata", "serpbase"] as const;
+export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "jina", "searxng", "duckduckgo", "perplexity", "gemini", "exa", "serpdive", "kagi", "ollama", "anysearch", "xai", "brightdata", "serpbase"] as const;
 export const SEARCH_PROVIDERS = ["auto", "all", ...RESOLVED_SEARCH_PROVIDERS] as const;
 
 export type ResolvedSearchProvider = typeof RESOLVED_SEARCH_PROVIDERS[number];
@@ -45,7 +46,7 @@ export type SearchProviderErrorKind =
 
 export interface SearchRoutingConfig {
 	providers: ResolvedSearchProvider[];
-	fallbackOn: Array<Extract<SearchProviderErrorKind, "transient" | "quota" | "network">>;
+	fallbackOn: Array<Extract<SearchProviderErrorKind, "transient" | "quota" | "network" | "invalid-response">>;
 }
 
 export class SearchProviderError extends Error {
@@ -87,10 +88,10 @@ export interface AttributedSearchResponse extends SearchResponse {
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
-// Explicit-only providers (AnySearch, xAI, Bright Data, SerpBase) are deliberately absent:
-// `all` must never fan out to a paid/surprising provider without the user asking for it.
+// Explicit-only providers (DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase) are deliberately absent:
+// `all` must never fan out to an opt-in or paid provider without the user asking for it.
 const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "jina", "serpdive", "kagi", "ollama", "perplexity", "gemini"];
-const VALID_ROUTING_KINDS = ["transient", "quota", "network"] as const;
+const VALID_ROUTING_KINDS = ["transient", "quota", "network", "invalid-response"] as const;
 
 type SearchConfig = {
 	searchProvider: SearchProviderSelection;
@@ -144,7 +145,7 @@ function normalizeSearchRouting(value: unknown): SearchRoutingConfig {
 	const fallbackOn: SearchRoutingConfig["fallbackOn"] = [];
 	for (const kind of raw.fallbackOn) {
 		if (typeof kind !== "string" || !VALID_ROUTING_KINDS.includes(kind as typeof VALID_ROUTING_KINDS[number])) {
-			throw new Error(`searchRouting.fallbackOn in ${CONFIG_PATH} may only contain transient, quota, or network`);
+			throw new Error(`searchRouting.fallbackOn in ${CONFIG_PATH} may only contain transient, quota, network, or invalid-response`);
 		}
 		if (!fallbackOn.includes(kind as SearchRoutingConfig["fallbackOn"][number])) {
 			fallbackOn.push(kind as SearchRoutingConfig["fallbackOn"][number]);
@@ -274,7 +275,7 @@ function classifyProviderError(provider: ResolvedSearchProvider, err: unknown): 
 		kind = "auth";
 	} else if (/bad request|invalid request/.test(lower)) {
 		kind = "invalid-request";
-	} else if (/invalid json|no parseable response|returned invalid response|returned empty response/.test(lower)) {
+	} else if (/invalid json|no parseable response|no parseable results|invalid response|returned empty response/.test(lower)) {
 		kind = "invalid-response";
 	} else if (/temporar|service unavailable|server error/.test(lower)) {
 		kind = "transient";
@@ -312,6 +313,7 @@ async function searchWithResolvedProvider(
 	if (provider === "serpbase") return { ...(await searchWithSerpBase(query, options)), provider };
 	if (provider === "perplexity") return { ...(await searchWithPerplexity(query, options)), provider };
 	if (provider === "searxng") return { ...(await searchWithSearXNG(query, options)), provider };
+	if (provider === "duckduckgo") return { ...(await searchWithDuckDuckGo(query, options)), provider };
 	if (provider === "gemini") {
 		const result = await searchWithGemini(query, options, true);
 		if (result) return { ...result, provider };
@@ -346,6 +348,7 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "serpbase") return isSerpBaseAvailable();
 	if (provider === "perplexity") return isPerplexityAvailable();
 	if (provider === "searxng") return isSearXNGAvailable();
+	if (provider === "duckduckgo") return isDuckDuckGoAvailable();
 	if (provider === "gemini") return isGeminiApiAvailable() || !!(await isGeminiWebAvailable());
 	return isExaAvailable();
 }
@@ -358,6 +361,7 @@ function providerLabel(provider: ResolvedSearchProvider): string {
 	if (provider === "querit") return "Querit";
 	if (provider === "serpdive") return "SERPdive";
 	if (provider === "searxng") return "SearXNG";
+	if (provider === "duckduckgo") return "DuckDuckGo";
 	if (provider === "kagi") return "Kagi";
 	if (provider === "ollama") return "Ollama";
 	if (provider === "xai") return "xAI";

@@ -8,7 +8,7 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; jina: boolean; serpdive: boolean; kagi: boolean; ollama: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean },
+	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; jina: boolean; serpdive: boolean; kagi: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean },
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
@@ -28,6 +28,7 @@ function buildProviderButtons(
 		{ value: "kagi", label: "Kagi", available: available.kagi },
 		{ value: "ollama", label: "Ollama", available: available.ollama },
 		{ value: "searxng", label: "SearXNG", available: available.searxng },
+		{ value: "duckduckgo", label: "DuckDuckGo", available: available.duckduckgo },
 		{ value: "perplexity", label: "Perplexity", available: available.perplexity },
 		{ value: "gemini", label: "Gemini", available: available.gemini },
 		{ value: "anysearch", label: "AnySearch", available: available.anysearch },
@@ -52,7 +53,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; jina: boolean; serpdive: boolean; kagi: boolean; ollama: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean },
+	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; jina: boolean; serpdive: boolean; kagi: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean },
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
@@ -1453,7 +1454,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "jina", "serpdive", "kagi", "ollama", "searxng", "perplexity", "gemini", "anysearch", "xai", "brightdata", "serpbase"];
+  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "jina", "serpdive", "kagi", "ollama", "searxng", "duckduckgo", "perplexity", "gemini", "anysearch", "xai", "brightdata", "serpbase"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1670,6 +1671,7 @@ const SCRIPT = `(function() {
     if (provider === "kagi") return "Kagi";
     if (provider === "ollama") return "Ollama";
     if (provider === "searxng") return "SearXNG";
+    if (provider === "duckduckgo") return "DuckDuckGo";
     if (provider === "perplexity") return "Perplexity";
     if (provider === "exa") return "Exa";
     if (provider === "gemini") return "Gemini";
