@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, test } from "node:test";
 
 import initializeExtension from "../index.ts";
-import { clearResults, getFetchCacheDir, restoreFromSession } from "../storage.ts";
+import { clearResults, deleteResult, getFetchCacheDir, getResult, pruneExpiredFetchCache, restoreFromSession, storeFetchedContentResult } from "../storage.ts";
 
 const originalFetch = globalThis.fetch;
 const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -49,6 +49,15 @@ function restoreEntry(data) {
 			getBranch: () => [{ type: "custom", customType: "web-search-results", data }],
 		},
 	});
+}
+
+function fetchedData(id, content = "cached content") {
+	return {
+		id,
+		type: "fetch",
+		timestamp: Date.now(),
+		urls: [{ url: `https://example.com/${id}`, title: id, content, error: null }],
+	};
 }
 
 test("fetch_content stores full content in cache and writes a bounded session entry", async () => {
@@ -146,4 +155,176 @@ test("missing cache files return an actionable fetched-content error", async () 
 	assert.equal(missing.details.error, "Cached fetched content is missing or expired");
 	assert.match(missing.content[0].text, /Cached fetched content is missing or expired/);
 	rmSync(agentDir, { recursive: true, force: true });
+});
+
+test("cache pruning evicts the oldest entries by count and bytes", async () => {
+	await useTempAgentDir();
+	const cacheDir = getFetchCacheDir();
+	mkdirSync(cacheDir, { recursive: true });
+	const now = Date.now();
+	for (const [name, content, ageSeconds] of [
+		["oldest.json", "1111", 30],
+		["middle.json", "222222", 20],
+		["newest.json", "33333333", 10],
+	]) {
+		const path = join(cacheDir, name);
+		writeFileSync(path, content);
+		utimesSync(path, new Date(now - ageSeconds * 1000), new Date(now - ageSeconds * 1000));
+	}
+
+	pruneExpiredFetchCache(now, { maxEntries: 2, maxBytes: 1024 });
+	assert.deepEqual(readdirSync(cacheDir).sort(), ["middle.json", "newest.json"]);
+
+	pruneExpiredFetchCache(now, { maxEntries: 10, maxBytes: 8 });
+	assert.deepEqual(readdirSync(cacheDir), ["newest.json"]);
+	assert.throws(() => pruneExpiredFetchCache(now, { maxEntries: 0 }), /finite positive integers/);
+	assert.throws(() => pruneExpiredFetchCache(now, { maxBytes: Infinity }), /finite positive integers/);
+});
+
+test("default cache pruning keeps the newest 128 entries", async () => {
+	await useTempAgentDir();
+	const cacheDir = getFetchCacheDir();
+	mkdirSync(cacheDir, { recursive: true });
+	const now = Date.now();
+	for (let index = 0; index < 129; index++) {
+		const path = join(cacheDir, `entry-${index.toString().padStart(3, "0")}.json`);
+		writeFileSync(path, "{}");
+		const modified = new Date(now - (129 - index) * 1000);
+		utimesSync(path, modified, modified);
+	}
+
+	pruneExpiredFetchCache(now);
+	const remaining = readdirSync(cacheDir).sort();
+	assert.equal(remaining.length, 128);
+	assert.equal(remaining.includes("entry-000.json"), false);
+	assert.equal(remaining.includes("entry-128.json"), true);
+});
+
+test("default cache pruning enforces the 128 MiB byte limit", async () => {
+	await useTempAgentDir();
+	const cacheDir = getFetchCacheDir();
+	mkdirSync(cacheDir, { recursive: true });
+	const now = Date.now();
+	for (const [name, ageSeconds] of [["older.json", 20], ["newer.json", 10]]) {
+		const path = join(cacheDir, name);
+		writeFileSync(path, "");
+		truncateSync(path, 65 * 1024 * 1024);
+		const modified = new Date(now - ageSeconds * 1000);
+		utimesSync(path, modified, modified);
+	}
+
+	pruneExpiredFetchCache(now);
+	assert.deepEqual(readdirSync(cacheDir), ["newer.json"]);
+});
+
+test("cache pruning removes only stale owned temp files", async () => {
+	await useTempAgentDir();
+	const cacheDir = getFetchCacheDir();
+	mkdirSync(cacheDir, { recursive: true });
+	const now = Date.now();
+	const stale = ["old.json.123.456.tmp", `new.json.123.456.${"a".repeat(32)}.tmp`];
+	const fresh = `fresh.json.123.456.${"b".repeat(32)}.tmp`;
+	const preserved = ["foreign.tmp", "old.json.not-ours.tmp", fresh];
+	for (const name of [...stale, ...preserved]) {
+		const path = join(cacheDir, name);
+		writeFileSync(path, name);
+		if (name !== fresh) utimesSync(path, new Date(now - 2 * 60 * 60 * 1000), new Date(now - 2 * 60 * 60 * 1000));
+	}
+
+	pruneExpiredFetchCache(now);
+	assert.deepEqual(readdirSync(cacheDir).sort(), preserved.sort());
+});
+
+test("cache pruning corrects directory and entry permissions", { skip: process.platform === "win32" }, async () => {
+	await useTempAgentDir();
+	const cacheDir = getFetchCacheDir();
+	mkdirSync(cacheDir, { recursive: true });
+	const entryPath = join(cacheDir, "permissions.json");
+	writeFileSync(entryPath, "{}");
+	chmodSync(cacheDir, 0o777);
+	chmodSync(entryPath, 0o666);
+
+	pruneExpiredFetchCache();
+	assert.equal(statSync(cacheDir).mode & 0o777, 0o700);
+	assert.equal(statSync(entryPath).mode & 0o777, 0o600);
+});
+
+test("cache write and rename failures degrade without leaving temp files", async () => {
+	await useTempAgentDir();
+	const unwritable = fetchedData("unwritable");
+	unwritable.circular = unwritable;
+	const failed = storeFetchedContentResult("unwritable", unwritable);
+	assert.equal(failed.fetchCache, undefined);
+	assert.match(failed.fetchCacheError, /circular/i);
+	assert.equal(readdirSync(dirname(getFetchCacheDir())).includes("web-search-cache"), false);
+
+	const written = storeFetchedContentResult("normal", fetchedData("normal"));
+	assert.ok(written.fetchCache);
+	mkdirSync(join(getFetchCacheDir(), "blocked.json"));
+	const blocked = storeFetchedContentResult("blocked", fetchedData("blocked"));
+	assert.equal(blocked.fetchCache, undefined);
+	assert.equal(readdirSync(getFetchCacheDir()).some((name) => name.endsWith(".tmp")), false);
+});
+
+test("corrupt cache files remain unavailable without throwing", async () => {
+	await useTempAgentDir();
+	const cacheDir = getFetchCacheDir();
+	mkdirSync(cacheDir, { recursive: true });
+	writeFileSync(join(cacheDir, "corrupt.json"), "not json");
+	restoreEntry({
+		id: "corrupt",
+		type: "fetch",
+		timestamp: Date.now(),
+		fetchCache: { version: 1, key: "corrupt.json", storedAt: Date.now() },
+		urlMetadata: [{ url: "https://example.com/corrupt", title: "corrupt", error: null, contentLength: 8 }],
+	});
+
+	const restored = getResult("corrupt");
+	assert.equal(restored.urls[0].content, "");
+	assert.match(restored.urls[0].error, /could not be read/);
+});
+
+test("cache file symlinks are not followed", { skip: process.platform === "win32" }, async () => {
+	const agentDir = await useTempAgentDir();
+	const cacheDir = getFetchCacheDir();
+	mkdirSync(cacheDir, { recursive: true });
+	const target = join(agentDir, "outside.json");
+	writeFileSync(target, JSON.stringify(fetchedData("linked")));
+	symlinkSync(target, join(cacheDir, "linked.json"));
+	restoreEntry({
+		id: "linked",
+		type: "fetch",
+		timestamp: Date.now(),
+		fetchCache: { version: 1, key: "linked.json", storedAt: Date.now() },
+		urlMetadata: [{ url: "https://example.com/linked", title: "linked", error: null, contentLength: 14 }],
+	});
+
+	const restored = getResult("linked");
+	assert.equal(restored.urls[0].content, "");
+	assert.match(restored.urls[0].error, /not a regular file/);
+	assert.match(readFileSync(target, "utf8"), /cached content/);
+});
+
+test("cache directory symlinks are rejected for writes and deletes", { skip: process.platform === "win32" }, async () => {
+	const agentDir = await useTempAgentDir();
+	const cacheDir = getFetchCacheDir();
+	const outside = join(agentDir, "outside-cache");
+	mkdirSync(dirname(cacheDir), { recursive: true });
+	mkdirSync(outside);
+	symlinkSync(outside, cacheDir);
+
+	const rejected = storeFetchedContentResult("dir-link", fetchedData("dir-link"));
+	assert.equal(rejected.fetchCache, undefined);
+	assert.match(rejected.fetchCacheError, /not a safe directory/);
+	assert.deepEqual(readdirSync(outside), []);
+
+	rmSync(cacheDir);
+	const stored = storeFetchedContentResult("delete-link", fetchedData("delete-link"));
+	assert.ok(stored.fetchCache);
+	rmSync(cacheDir, { recursive: true });
+	mkdirSync(outside, { recursive: true });
+	writeFileSync(join(outside, stored.fetchCache.key), "outside");
+	symlinkSync(outside, cacheDir);
+	assert.equal(deleteResult("delete-link"), true);
+	assert.equal(readFileSync(join(outside, stored.fetchCache.key), "utf8"), "outside");
 });

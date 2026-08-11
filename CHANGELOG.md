@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Hardened the fetched-content cache against symlink traversal and unsafe permissions, and bounded it to 128 entries and 128 MiB with oldest-entry eviction.
+
 ## [0.21.0] - 2026-08-10
 
 ### Added

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, type Stats, unlinkSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ExtractedContent } from "./extract.ts";
@@ -9,8 +10,25 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const FETCH_CACHE_DIR = "web-search-cache";
 const FETCH_CACHE_VERSION = 1;
 const CACHE_KEY_PATTERN = /^[A-Za-z0-9_-]+\.json$/;
+const CACHE_TMP_PATTERN = /^[A-Za-z0-9_-]+\.json\.\d+\.\d+(?:\.[a-f0-9]{32})?\.tmp$/;
 const CACHE_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const MAX_METADATA_TEXT = 8192;
+const DEFAULT_CACHE_LIMITS = { maxEntries: 128, maxBytes: 128 * 1024 * 1024 };
+const O_DIRECTORY = process.platform === "win32" ? 0 : (constants.O_DIRECTORY ?? 0);
+const O_NOFOLLOW = process.platform === "win32" ? 0 : (constants.O_NOFOLLOW ?? 0);
+
+interface FetchCacheLimits {
+	maxEntries: number;
+	maxBytes: number;
+}
+
+interface CacheFile {
+	name: string;
+	size: number;
+	mtimeMs: number;
+	dev: number;
+	ino: number;
+}
 
 export interface QueryResultData {
 	query: string;
@@ -120,17 +138,207 @@ function isInlineFetchData(data: StoredSearchData): data is StoredSearchData & {
 	return data.type === "fetch" && Array.isArray(data.urls) && data.urls.every(isInlineFetchedUrl);
 }
 
-function writeFetchCache(data: StoredSearchData & { urls: ExtractedContent[] }): FetchCacheRef {
-	const dir = getFetchCacheDir();
-	mkdirSync(dir, { recursive: true, mode: 0o700 });
-	const key = cacheKeyForId(data.id);
-	const finalPath = join(dir, key);
-	const tmpPath = join(dir, `${key}.${process.pid}.${Date.now()}.tmp`);
+function cacheLimits(limits?: Partial<FetchCacheLimits>): FetchCacheLimits {
+	const resolved = {
+		maxEntries: limits?.maxEntries ?? DEFAULT_CACHE_LIMITS.maxEntries,
+		maxBytes: limits?.maxBytes ?? DEFAULT_CACHE_LIMITS.maxBytes,
+	};
+	if (!Number.isFinite(resolved.maxEntries) || !Number.isInteger(resolved.maxEntries) || resolved.maxEntries <= 0 ||
+		!Number.isFinite(resolved.maxBytes) || !Number.isInteger(resolved.maxBytes) || resolved.maxBytes <= 0) {
+		throw new Error("Fetched content cache limits must be finite positive integers");
+	}
+	return resolved;
+}
+
+function enforceDirectoryMode(fd: number): void {
 	try {
-		writeFileSync(tmpPath, JSON.stringify(data), { mode: 0o600 });
-		renameSync(tmpPath, finalPath);
+		fchmodSync(fd, 0o700);
 	} catch (err) {
-		try { unlinkSync(tmpPath); } catch {}
+		if (process.platform !== "win32") throw err;
+	}
+}
+
+function enforceFileMode(fd: number): void {
+	try {
+		fchmodSync(fd, 0o600);
+	} catch (err) {
+		if (process.platform !== "win32") throw err;
+	}
+}
+
+function safeFetchCacheDir(create: true): string;
+function safeFetchCacheDir(create: false): string | null;
+function safeFetchCacheDir(create: boolean): string | null {
+	const dir = getFetchCacheDir();
+	if (create) mkdirSync(dir, { recursive: true, mode: 0o700 });
+	let before: Stats;
+	try {
+		before = lstatSync(dir);
+	} catch (err) {
+		if (!create && (err as NodeJS.ErrnoException).code === "ENOENT") return null;
+		throw err;
+	}
+	if (before.isSymbolicLink() || !before.isDirectory()) {
+		throw new Error("Fetched content cache path is not a safe directory");
+	}
+	if (process.platform === "win32") {
+		const after = lstatSync(dir);
+		if (after.isSymbolicLink() || !after.isDirectory() || after.dev !== before.dev || after.ino !== before.ino) {
+			throw new Error("Fetched content cache directory changed while securing it");
+		}
+		return dir;
+	}
+	let fd: number | null = null;
+	try {
+		fd = openSync(dir, constants.O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+		const opened = fstatSync(fd);
+		if (!opened.isDirectory() || opened.dev !== before.dev || opened.ino !== before.ino) {
+			throw new Error("Fetched content cache directory changed while opening");
+		}
+		enforceDirectoryMode(fd);
+		closeSync(fd);
+		fd = null;
+		const after = lstatSync(dir);
+		if (after.isSymbolicLink() || !after.isDirectory() || after.dev !== before.dev || after.ino !== before.ino) {
+			throw new Error("Fetched content cache directory changed while securing it");
+		}
+		return dir;
+	} finally {
+		if (fd !== null) try { closeSync(fd); } catch {}
+	}
+}
+
+function openRegularFile(path: string): { fd: number; info: Stats } {
+	const before = lstatSync(path);
+	if (before.isSymbolicLink() || !before.isFile()) throw new Error("Fetched content cache entry is not a regular file");
+	const fd = openSync(path, constants.O_RDONLY | O_NOFOLLOW);
+	try {
+		const info = fstatSync(fd);
+		if (!info.isFile() || info.dev !== before.dev || info.ino !== before.ino) {
+			throw new Error("Fetched content cache entry changed while opening");
+		}
+		return { fd, info };
+	} catch (err) {
+		closeSync(fd);
+		throw err;
+	}
+}
+
+function unlinkCacheFile(dir: string, file: CacheFile): boolean {
+	try {
+		const root = lstatSync(dir);
+		if (root.isSymbolicLink() || !root.isDirectory()) return false;
+		const path = join(dir, file.name);
+		const current = lstatSync(path);
+		if (current.isSymbolicLink() || !current.isFile() || current.dev !== file.dev || current.ino !== file.ino) return false;
+		unlinkSync(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function pruneFetchCache(now: number, limits: FetchCacheLimits, preferredKey?: string, reservation?: { key: string; bytes: number }): boolean {
+	let dir: string | null;
+	try {
+		dir = safeFetchCacheDir(false);
+	} catch {
+		return false;
+	}
+	if (!dir) return true;
+
+	let entries: string[];
+	try {
+		entries = readdirSync(dir);
+	} catch {
+		return false;
+	}
+
+	const files: CacheFile[] = [];
+	for (const entry of entries) {
+		if (!CACHE_KEY_PATTERN.test(entry) && !CACHE_TMP_PATTERN.test(entry)) continue;
+		const path = join(dir, entry);
+		let opened: ReturnType<typeof openRegularFile>;
+		try {
+			opened = openRegularFile(path);
+		} catch {
+			continue;
+		}
+		try {
+			enforceFileMode(opened.fd);
+		} catch {
+			closeSync(opened.fd);
+			continue;
+		}
+		closeSync(opened.fd);
+		const file = { name: entry, size: opened.info.size, mtimeMs: opened.info.mtimeMs, dev: opened.info.dev, ino: opened.info.ino };
+		if (now - file.mtimeMs >= CACHE_TTL_MS) {
+			if (!unlinkCacheFile(dir, file)) return false;
+			continue;
+		}
+		if (CACHE_KEY_PATTERN.test(entry)) files.push(file);
+	}
+
+	files.sort((a, b) => a.mtimeMs - b.mtimeMs || a.name.localeCompare(b.name));
+	const projectedUsage = () => {
+		const replaced = reservation ? files.find((file) => file.name === reservation.key) : undefined;
+		return {
+			entries: files.length + (reservation && !replaced ? 1 : 0),
+			bytes: files.reduce((total, file) => total + file.size, 0) + (reservation ? reservation.bytes - (replaced?.size ?? 0) : 0),
+		};
+	};
+	const attempted = new Set<string>();
+	let usage = projectedUsage();
+	while (usage.entries > limits.maxEntries || usage.bytes > limits.maxBytes) {
+		const index = files.findIndex((file) => file.name !== preferredKey && !attempted.has(file.name));
+		if (index < 0) break;
+		const file = files[index];
+		attempted.add(file.name);
+		if (unlinkCacheFile(dir, file)) files.splice(index, 1);
+		usage = projectedUsage();
+	}
+	return usage.entries <= limits.maxEntries && usage.bytes <= limits.maxBytes;
+}
+
+function writeFetchCache(data: StoredSearchData & { urls: ExtractedContent[] }): FetchCacheRef {
+	const limits = DEFAULT_CACHE_LIMITS;
+	const serialized = JSON.stringify(data);
+	const size = Buffer.byteLength(serialized);
+	if (size > limits.maxBytes) throw new Error(`Fetched content cache entry exceeds ${limits.maxBytes} bytes`);
+
+	const dir = safeFetchCacheDir(true);
+	const key = cacheKeyForId(data.id);
+	if (!pruneFetchCache(Date.now(), limits, key, { key, bytes: size })) {
+		throw new Error("Fetched content cache could not reserve space for a new entry");
+	}
+	const finalPath = join(dir, key);
+	const tmpName = `${key}.${process.pid}.${Date.now()}.${randomBytes(16).toString("hex")}.tmp`;
+	const tmpPath = join(dir, tmpName);
+	let fd: number | null = null;
+	let tmpFile: CacheFile | null = null;
+	let renamed = false;
+	try {
+		fd = openSync(tmpPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | O_NOFOLLOW, 0o600);
+		const tmpInfo = fstatSync(fd);
+		tmpFile = { name: tmpName, size: tmpInfo.size, mtimeMs: tmpInfo.mtimeMs, dev: tmpInfo.dev, ino: tmpInfo.ino };
+		enforceFileMode(fd);
+		writeFileSync(fd, serialized, "utf8");
+		fsyncSync(fd);
+		closeSync(fd);
+		fd = null;
+		safeFetchCacheDir(false);
+		renameSync(tmpPath, finalPath);
+		renamed = true;
+		const written = lstatSync(finalPath);
+		if (!written.isFile() || written.dev !== tmpFile.dev || written.ino !== tmpFile.ino) {
+			throw new Error("Fetched content cache entry changed after writing");
+		}
+		if (!pruneFetchCache(Date.now(), limits, key)) {
+			throw new Error("Fetched content cache could not meet its limits after writing");
+		}
+	} catch (err) {
+		if (fd !== null) try { closeSync(fd); } catch {}
+		if (tmpFile) unlinkCacheFile(dir, { ...tmpFile, name: renamed ? key : tmpName });
 		throw err;
 	}
 	return { version: FETCH_CACHE_VERSION, key, storedAt: Date.now() };
@@ -182,37 +390,32 @@ function readCachedFetchData(data: StoredSearchData, now = Date.now()): StoredSe
 		return unavailableFetchData(data, data.fetchCacheError ?? "Cached fetched content is unavailable");
 	}
 	const path = fetchCachePath(data.fetchCache.key);
-	if (!path || !existsSync(path)) {
-		return unavailableFetchData(data, "Cached fetched content is missing or expired");
-	}
+	if (!path) return unavailableFetchData(data, "Cached fetched content is missing or expired");
+	let fd: number | null = null;
 	try {
-		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		if (!safeFetchCacheDir(false)) return unavailableFetchData(data, "Cached fetched content is missing or expired");
+		const opened = openRegularFile(path);
+		fd = opened.fd;
+		enforceFileMode(fd);
+		const parsed: unknown = JSON.parse(readFileSync(fd, "utf8"));
 		if (!isValidStoredData(parsed) || parsed.type !== "fetch" || parsed.id !== data.id || !isInlineFetchData(parsed)) {
 			return unavailableFetchData(data, "Cached fetched content is invalid");
 		}
 		return { ...parsed, fetchCache: data.fetchCache, urlMetadata: data.urlMetadata };
 	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+			return unavailableFetchData(data, "Cached fetched content is missing or expired");
+		}
 		const message = err instanceof Error ? err.message : String(err);
 		return unavailableFetchData(data, `Cached fetched content could not be read: ${message}`);
+	} finally {
+		if (fd !== null) try { closeSync(fd); } catch {}
 	}
 }
 
-export function pruneExpiredFetchCache(now = Date.now()): void {
-	const dir = getFetchCacheDir();
-	if (!existsSync(dir)) return;
-	let entries: string[];
-	try {
-		entries = readdirSync(dir);
-	} catch {
-		return;
-	}
-	for (const entry of entries) {
-		if (!CACHE_KEY_PATTERN.test(entry)) continue;
-		const path = join(dir, entry);
-		try {
-			if (now - statSync(path).mtimeMs >= CACHE_TTL_MS) unlinkSync(path);
-		} catch {}
-	}
+export function pruneExpiredFetchCache(now = Date.now(), requestedLimits?: Partial<FetchCacheLimits>): void {
+	const limits = cacheLimits(requestedLimits);
+	try { pruneFetchCache(now, limits); } catch {}
 }
 
 export function storeResult(id: string, data: StoredSearchData): void {
@@ -220,7 +423,6 @@ export function storeResult(id: string, data: StoredSearchData): void {
 }
 
 export function storeFetchedContentResult(id: string, data: StoredSearchData & { type: "fetch"; urls: ExtractedContent[] }): StoredSearchData {
-	pruneExpiredFetchCache();
 	let ref: FetchCacheRef | null = null;
 	let cacheError: string | undefined;
 	try {
@@ -247,8 +449,16 @@ export function getAllResults(): StoredSearchData[] {
 export function deleteResult(id: string): boolean {
 	const data = storedResults.get(id);
 	if (data?.fetchCache) {
-		const path = fetchCachePath(data.fetchCache.key);
-		if (path) try { unlinkSync(path); } catch {}
+		try {
+			const dir = safeFetchCacheDir(false);
+			const path = fetchCachePath(data.fetchCache.key);
+			if (dir && path) {
+				const info = lstatSync(path);
+				if (!info.isSymbolicLink() && info.isFile()) {
+					unlinkCacheFile(dir, { name: data.fetchCache.key, size: info.size, mtimeMs: info.mtimeMs, dev: info.dev, ino: info.ino });
+				}
+			}
+		} catch {}
 	}
 	return storedResults.delete(id);
 }
