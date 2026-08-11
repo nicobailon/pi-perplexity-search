@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -318,7 +318,7 @@ test("cache directory symlinks are rejected for writes and deletes", { skip: pro
 	assert.match(rejected.fetchCacheError, /not a safe directory/);
 	assert.deepEqual(readdirSync(outside), []);
 
-	rmSync(cacheDir);
+	unlinkSync(cacheDir);
 	const stored = storeFetchedContentResult("delete-link", fetchedData("delete-link"));
 	assert.ok(stored.fetchCache);
 	rmSync(cacheDir, { recursive: true });
