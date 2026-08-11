@@ -224,17 +224,28 @@ function openRegularFile(path: string): { fd: number; info: Stats } {
 	}
 }
 
-function unlinkCacheFile(dir: string, file: CacheFile): boolean {
+type CacheUnlinkResult = "removed" | "missing" | "changed" | "error";
+
+function unlinkCacheFile(dir: string, file: CacheFile): CacheUnlinkResult {
 	try {
 		const root = lstatSync(dir);
-		if (root.isSymbolicLink() || !root.isDirectory()) return false;
+		if (root.isSymbolicLink() || !root.isDirectory()) return "changed";
 		const path = join(dir, file.name);
-		const current = lstatSync(path);
-		if (current.isSymbolicLink() || !current.isFile() || current.dev !== file.dev || current.ino !== file.ino) return false;
-		unlinkSync(path);
-		return true;
+		let current: Stats;
+		try {
+			current = lstatSync(path);
+		} catch (err) {
+			return (err as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "error";
+		}
+		if (current.isSymbolicLink() || !current.isFile() || current.dev !== file.dev || current.ino !== file.ino) return "changed";
+		try {
+			unlinkSync(path);
+			return "removed";
+		} catch (err) {
+			return (err as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "error";
+		}
 	} catch {
-		return false;
+		return "error";
 	}
 }
 
@@ -273,7 +284,8 @@ function pruneFetchCache(now: number, limits: FetchCacheLimits, preferredKey?: s
 		closeSync(opened.fd);
 		const file = { name: entry, size: opened.info.size, mtimeMs: opened.info.mtimeMs, dev: opened.info.dev, ino: opened.info.ino };
 		if (now - file.mtimeMs >= CACHE_TTL_MS) {
-			if (!unlinkCacheFile(dir, file)) return false;
+			const removed = unlinkCacheFile(dir, file);
+			if (removed !== "removed" && removed !== "missing") return false;
 			continue;
 		}
 		if (CACHE_KEY_PATTERN.test(entry)) files.push(file);
@@ -294,7 +306,8 @@ function pruneFetchCache(now: number, limits: FetchCacheLimits, preferredKey?: s
 		if (index < 0) break;
 		const file = files[index];
 		attempted.add(file.name);
-		if (unlinkCacheFile(dir, file)) files.splice(index, 1);
+		const removed = unlinkCacheFile(dir, file);
+		if (removed === "removed" || removed === "missing") files.splice(index, 1);
 		usage = projectedUsage();
 	}
 	return usage.entries <= limits.maxEntries && usage.bytes <= limits.maxBytes;
