@@ -75,7 +75,7 @@ function normalizeMode(value: unknown): "readable" | "raw" | "answer" | undefine
 }
 
 function normalizeOptionalInteger(value: unknown): number | undefined {
-	if (typeof value !== "number" || !Number.isInteger(value) || value < 1) return undefined;
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 12) return undefined;
 	return value;
 }
 

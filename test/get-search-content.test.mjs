@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Value } from "typebox/value";
 
 import initializeExtension from "../index.ts";
 import { clearResults, storeResult } from "../storage.ts";
@@ -31,6 +32,29 @@ function storeFetchedContent(content) {
 		}],
 	});
 }
+
+test("get_search_content schemas constrain numeric parameters", () => {
+	const properties = getContentTool().parameters.properties;
+
+	for (const name of ["queryIndex", "urlIndex", "offset"]) {
+		assert.equal(properties[name].type, "integer");
+		assert.equal(properties[name].minimum, 0);
+		assert.equal(properties[name].maximum, undefined);
+		for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+			assert.equal(Value.Check(properties[name], value), false, `${name} accepts ${value}`);
+		}
+	}
+
+	assert.equal(properties.limit.type, "integer");
+	assert.equal(properties.limit.minimum, 1);
+	assert.equal(properties.limit.maximum, 200_000);
+	for (const value of [0, 1.5, 200_001, Number.NaN, Number.POSITIVE_INFINITY]) {
+		assert.equal(Value.Check(properties.limit, value), false, `limit accepts ${value}`);
+	}
+	for (const value of [1, 30_000, 200_000]) {
+		assert.equal(Value.Check(properties.limit, value), true, `limit rejects ${value}`);
+	}
+});
 
 test("get_search_content returns a bounded first slice for large fetched content", async () => {
 	const tool = getContentTool();

@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { Value } from "typebox/value";
+
 import initializeExtension from "../index.ts";
 
 const indexUrl = new URL("../index.ts", import.meta.url).href;
@@ -19,7 +21,7 @@ function runRegistration(config) {
 			const tools = [];
 			const commands = [];
 			initializeExtension({
-				registerTool(tool) { tools.push({ name: tool.name, description: tool.description, promptSnippet: tool.promptSnippet }); },
+				registerTool(tool) { tools.push({ name: tool.name, description: tool.description, promptSnippet: tool.promptSnippet, parameters: tool.parameters }); },
 				registerCommand(name) { commands.push(name); },
 				registerShortcut() {},
 				on() {},
@@ -54,6 +56,21 @@ function registrationError(config) {
 	assert.notEqual(child.status, 0, child.stdout);
 	return child.stderr;
 }
+
+test("search tools constrain numResults to integer values from 1 through 20", () => {
+	for (const name of ["web_search", "source_check"]) {
+		const schema = registeredTool({}, name).parameters.properties.numResults;
+		assert.equal(schema.type, "integer");
+		assert.equal(schema.minimum, 1);
+		assert.equal(schema.maximum, 20);
+		for (const value of [0, -1, 1.5, 21, Number.NaN, Number.POSITIVE_INFINITY]) {
+			assert.equal(Value.Check(schema, value), false, `${name} accepts ${value}`);
+		}
+		for (const value of [1, 5, 20]) {
+			assert.equal(Value.Check(schema, value), true, `${name} rejects ${value}`);
+		}
+	}
+});
 
 test("tool registration gates support legacy and per-tool config", () => {
 	assert.deepEqual(registeredToolNames({ webSearch: { enabled: false } }), ["fetch_content", "get_search_content"]);

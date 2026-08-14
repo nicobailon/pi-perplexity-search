@@ -43,7 +43,8 @@ test("fetch_content params preserve forceClone only for boolean values", () => {
 	assert.equal(normalizeFetchContentParams({ forceClone: "true" }).options.forceClone, undefined);
 });
 
-test("fetch_content params drop non-positive and non-integer frames", () => {
+test("fetch_content params drop out-of-range, non-positive, and non-integer frames", () => {
+	assert.equal(normalizeFetchContentParams({ frames: 13, timestamp: "1:23" }).options.frames, undefined);
 	assert.equal(normalizeFetchContentParams({ frames: 0, timestamp: "1:23" }).options.frames, undefined);
 	assert.equal(normalizeFetchContentParams({ frames: -1, timestamp: "1:23" }).options.frames, undefined);
 	assert.equal(normalizeFetchContentParams({ frames: 1.5, timestamp: "1:23" }).options.frames, undefined);
