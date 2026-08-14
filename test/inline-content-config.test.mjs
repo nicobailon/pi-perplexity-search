@@ -31,6 +31,7 @@ async function runScenario(maxInlineContentChars) {
 			const tail = await contentTool.execute("call", { responseId: fetched.details.responseId, urlIndex: 0, offset: 40000, limit: 4 });
 			const rejected = await contentTool.execute("call", { responseId: fetched.details.responseId, urlIndex: 0, limit: ${maxInlineContentChars === undefined ? 30_001 : maxInlineContentChars + 1} });
 			console.log(JSON.stringify({
+				schemaMax: contentTool.parameters.properties.limit.maximum,
 				fetchTruncated: fetched.details.truncated,
 				fetchEndOffset: fetched.content.find(item => item.type === "text").text.indexOf("\\n\\n---"),
 				retrievedChars: retrieved.details.returnedChars,
@@ -49,6 +50,7 @@ async function runScenario(maxInlineContentChars) {
 test("inline content defaults to 30,000 characters", async () => {
 	const result = await runScenario();
 	assert.deepEqual(result, {
+		schemaMax: 30_000,
 		fetchTruncated: true,
 		fetchEndOffset: 30_000,
 		retrievedChars: 30_000,
@@ -61,6 +63,7 @@ test("inline content defaults to 30,000 characters", async () => {
 test("maxInlineContentChars applies to direct and stored content slices", async () => {
 	const result = await runScenario(40_000);
 	assert.deepEqual(result, {
+		schemaMax: 40_000,
 		fetchTruncated: true,
 		fetchEndOffset: 40_000,
 		retrievedChars: 40_000,
