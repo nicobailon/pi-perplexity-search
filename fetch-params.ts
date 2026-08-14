@@ -28,7 +28,7 @@ export function normalizeFetchContentParams(params: FetchContentParams): Normali
 	const urlList = normalizedUrls.length > 0 ? normalizedUrls : normalizeSingleUrl(params.url);
 	const prompt = normalizeOptionalString(params.prompt);
 	const timestamp = normalizeOptionalString(params.timestamp);
-	const frames = normalizeOptionalInteger(params.frames);
+	const frames = normalizeOptionalFrameCount(params.frames);
 
 	const shouldIncludeFrames = frames !== undefined && (timestamp !== undefined || frames > 1);
 
@@ -74,7 +74,7 @@ function normalizeMode(value: unknown): "readable" | "raw" | "answer" | undefine
 	throw new Error('mode must be "readable", "raw", or "answer"');
 }
 
-function normalizeOptionalInteger(value: unknown): number | undefined {
+function normalizeOptionalFrameCount(value: unknown): number | undefined {
 	if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 12) return undefined;
 	return value;
 }
