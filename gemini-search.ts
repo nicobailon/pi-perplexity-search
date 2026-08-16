@@ -26,9 +26,11 @@ import { isAnySearchAvailable, searchWithAnySearch } from "./anysearch.ts";
 import { isXaiSearchAvailable, searchWithXai } from "./xai-search.ts";
 import { isBrightDataAvailable, searchWithBrightData } from "./brightdata.ts";
 import { isSerpBaseAvailable, searchWithSerpBase } from "./serpbase.ts";
+import { isSerperAvailable, searchWithSerper } from "./serper.ts";
+import { isValyuAvailable, searchWithValyu } from "./valyu.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "searxng", "duckduckgo", "perplexity", "gemini", "exa", "serpdive", "kagi", "ollama", "anysearch", "xai", "brightdata", "serpbase", "bocha"] as const;
+export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "searxng", "duckduckgo", "perplexity", "gemini", "exa", "serpdive", "kagi", "ollama", "anysearch", "xai", "brightdata", "serpbase", "serper", "valyu", "bocha"] as const;
 export const SEARCH_PROVIDERS = ["auto", "all", ...RESOLVED_SEARCH_PROVIDERS] as const;
 
 export type ResolvedSearchProvider = typeof RESOLVED_SEARCH_PROVIDERS[number];
@@ -90,7 +92,7 @@ export interface AttributedSearchResponse extends SearchResponse {
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
-// Explicit-only providers (DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase) are deliberately absent:
+// Explicit-only providers (DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, Valyu) are deliberately absent:
 // `all` must never fan out to an opt-in or paid provider without the user asking for it.
 const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "ollama", "perplexity", "gemini", "bocha"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network", "invalid-response"] as const;
@@ -315,6 +317,8 @@ async function searchWithResolvedProvider(
 	if (provider === "xai") return { ...(await searchWithXai(query, options, options.extensionContext)), provider };
 	if (provider === "brightdata") return { ...(await searchWithBrightData(query, options)), provider };
 	if (provider === "serpbase") return { ...(await searchWithSerpBase(query, options)), provider };
+	if (provider === "serper") return { ...(await searchWithSerper(query, options)), provider };
+	if (provider === "valyu") return { ...(await searchWithValyu(query, options)), provider };
 	if (provider === "perplexity") return { ...(await searchWithPerplexity(query, options)), provider };
 	if (provider === "searxng") return { ...(await searchWithSearXNG(query, options)), provider };
 	if (provider === "duckduckgo") return { ...(await searchWithDuckDuckGo(query, options)), provider };
@@ -352,6 +356,8 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "xai") return isXaiSearchAvailable(options.extensionContext);
 	if (provider === "brightdata") return isBrightDataAvailable();
 	if (provider === "serpbase") return isSerpBaseAvailable();
+	if (provider === "serper") return isSerperAvailable();
+	if (provider === "valyu") return isValyuAvailable();
 	if (provider === "perplexity") return isPerplexityAvailable();
 	if (provider === "searxng") return isSearXNGAvailable();
 	if (provider === "duckduckgo") return isDuckDuckGoAvailable();
@@ -375,6 +381,8 @@ function providerLabel(provider: ResolvedSearchProvider): string {
 	if (provider === "xai") return "xAI";
 	if (provider === "brightdata") return "Bright Data";
 	if (provider === "serpbase") return "SerpBase";
+	if (provider === "serper") return "Serper";
+	if (provider === "valyu") return "Valyu";
 	return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
@@ -401,7 +409,7 @@ async function searchWithProviders(
 			: await isResolvedProviderAvailable(provider, options),
 	})))).filter((entry) => entry.available).map((entry) => entry.provider);
 	if (providers.length === 0) {
-		throw new Error("No configured search provider available for provider \"all\". AnySearch, xAI, Bright Data, and SerpBase are excluded.");
+		throw new Error("No configured search provider available for provider \"all\". AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu are excluded.");
 	}
 
 	const settled = await Promise.allSettled(
@@ -693,7 +701,7 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TINYFISH_API_KEY, SEARCH1API_KEY, SEARCHINFINITY_API_KEY, QUERIT_API_KEY, TAVILY_API_KEY, FIRECRAWL_BASE_URL, JINA_API_KEY, SERPDIVE_API_KEY, KAGI_API_KEY, BOCHA_API_KEY, OLLAMA_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
 		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
 		"  5. Sign into gemini.google.com in a supported Chromium-based browser\n" +
-		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch, \"xai\" for Grok, \"brightdata\" with brightdataSerpZone for paid Bright Data SERP, or \"serpbase\" with serpbaseApiKey for paid Google SERP"
+		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch, \"xai\" for Grok, \"brightdata\" with brightdataSerpZone for paid Bright Data SERP, \"serpbase\" or \"serper\" for Google SERP, or \"valyu\" for research search"
 	);
 }
 

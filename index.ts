@@ -63,6 +63,8 @@ import { isAnySearchAvailable } from "./anysearch.ts";
 import { isXaiSearchAvailable } from "./xai-search.ts";
 import { isBrightDataAvailable } from "./brightdata.ts";
 import { isSerpBaseAvailable } from "./serpbase.ts";
+import { isSerperAvailable } from "./serper.ts";
+import { isValyuAvailable } from "./valyu.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
 import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import {
@@ -117,7 +119,9 @@ interface WebSearchConfig {
 	kagiApiKey?: unknown;
 	ollamaApiKey?: unknown;
 	serpbaseApiKey?: unknown;
+	serperApiKey?: unknown;
 	tinyfishApiKey?: unknown;
+	valyuApiKey?: unknown;
 	xaiApiKey?: unknown;
 	provider?: unknown;
 	searchProvider?: unknown;
@@ -171,6 +175,8 @@ interface ProviderAvailability {
 	xai: boolean;
 	brightdata: boolean;
 	serpbase: boolean;
+	serper: boolean;
+	valyu: boolean;
 }
 
 type WebSearchWorkflow = "none" | "summary-review" | "auto-summary";
@@ -402,10 +408,12 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		xai: await isXaiSearchAvailable(ctx),
 		brightdata: isBrightDataAvailable(),
 		serpbase: isSerpBaseAvailable(),
+		serper: isSerperAvailable(),
+		valyu: isValyuAvailable(),
 	};
 	return {
-		// DuckDuckGo, AnySearch, xAI, Bright Data, and SerpBase are explicit-only, so they never make `all` eligible.
-		all: Object.entries(providers).some(([provider, available]) => provider !== "duckduckgo" && provider !== "anysearch" && provider !== "xai" && provider !== "brightdata" && provider !== "serpbase" && provider !== "gemini" && available) || geminiApiAvail,
+		// DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu are explicit-only, so they never make `all` eligible.
+		all: Object.entries(providers).some(([provider, available]) => provider !== "duckduckgo" && provider !== "anysearch" && provider !== "xai" && provider !== "brightdata" && provider !== "serpbase" && provider !== "serper" && provider !== "valyu" && provider !== "gemini" && available) || geminiApiAvail,
 		...providers,
 	};
 }
@@ -1673,7 +1681,7 @@ export default function (pi: ExtensionAPI) {
 				StringEnum(["day", "week", "month", "year"], { description: "Filter by recency" }),
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
-			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; use all to search every eligible provider except DuckDuckGo, AnySearch, xAI, Bright Data, and SerpBase, omit this field to use the configured provider, or use auto when none is configured")),
+			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; use all to search every eligible provider except DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu, omit this field to use the configured provider, or use auto when none is configured")),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
 					description: "Search workflow mode: none = no curator, summary-review = open curator with auto summary draft (default), auto-summary = generate summary without opening curator",
@@ -2241,7 +2249,7 @@ export default function (pi: ExtensionAPI) {
 			fetchContent: Type.Optional(Type.Boolean({ description: "Fetch up to 5 result pages for exact passage extraction." })),
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
-			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; all searches every eligible provider except DuckDuckGo, AnySearch, xAI, Bright Data, and SerpBase")),
+			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; all searches every eligible provider except DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu")),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";
