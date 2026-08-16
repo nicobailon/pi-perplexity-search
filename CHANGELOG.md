@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Keep valid AnySearch results when the API omits or nulls result content. Thanks to [@mikhel01](https://github.com/mikhel01) for #258.
+
 ## [0.23.0] - 2026-08-15
 
 ### Added
