@@ -1,12 +1,13 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text, truncateToWidth, type KeyId } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { StringEnum, complete, type Api, type ImageContent, type Model, type TextContent } from "@earendil-works/pi-ai/compat";
+import { StringEnum, type ImageContent, type TextContent } from "@earendil-works/pi-ai/compat";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { resolveAuthFetchProfile, type AuthFetchProfile } from "./auth-fetch.ts";
 import { findContent, type FindMode } from "./content-find.ts";
 import { answerFromPage } from "./page-query.ts";
+import { rewriteSearchQuery } from "./query-rewrite.ts";
 import { clearCloneCache } from "./github-extract.ts";
 import { getConfiguredSearchRouting, normalizeSearchProviderSelection, RESOLVED_SEARCH_PROVIDERS, SEARCH_PROVIDERS, search, type AttributedSearchResponse, type SearchProvider, type SearchProviderSelection, type ResolvedSearchProvider } from "./gemini-search.ts";
 import type { SearchResult } from "./perplexity.ts";
@@ -229,8 +230,6 @@ type ToolNames = {
 	fetchContent: string;
 	getSearchContent: string;
 };
-
-type ProviderHeaders = Record<string, string | null>;
 
 const DEFAULT_TOOL_NAMES: ToolNames = {
 	webSearch: "web_search",
@@ -1097,47 +1096,6 @@ export default function (pi: ExtensionAPI) {
 				extraLines: extraLines.length > 0 ? extraLines : undefined,
 			},
 		};
-	}
-
-	async function resolveFirstAvailableModel(
-		ctx: SummaryGenerationContext,
-		candidates: Array<{ provider: string; id: string }>,
-	): Promise<{ model: Model<Api>; apiKey: string; headers?: ProviderHeaders }> {
-		const enabledModelPatterns = loadEnabledModelPatterns(ctx);
-		for (const { provider, id } of candidates) {
-			const model = findModelWithProviderRouting(ctx.modelRegistry, provider, id);
-			if (!model || !modelMatchesEnabledPatterns(model, enabledModelPatterns)) continue;
-			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-			if (auth.ok && auth.apiKey) return { model, apiKey: auth.apiKey, headers: auth.headers };
-		}
-		throw new Error(`No enabled model available: ${candidates.map(c => `${c.provider}/${c.id}`).join(", ")}`);
-	}
-
-	async function rewriteSearchQuery(query: string, ctx: SummaryGenerationContext, signal: AbortSignal): Promise<string> {
-		const { model, apiKey, headers } = await resolveFirstAvailableModel(ctx, [
-			{ provider: "anthropic", id: "claude-haiku-4-5" },
-			{ provider: "google", id: "gemini-3.6-flash" },
-			{ provider: "openai", id: "gpt-4.1-mini" },
-		]);
-		const response = await complete(
-			model,
-			{
-				messages: [{
-					role: "user",
-					content: [{ type: "text", text: `Rewrite this web search query to get better, more specific results. Add relevant year qualifiers, precise technical terms, and specificity. Return ONLY the improved query text, nothing else.\n\nQuery: ${query}` }],
-					timestamp: Date.now(),
-				}],
-			},
-			{ apiKey, headers, signal },
-		);
-		if (response.stopReason === "aborted") throw new Error("Aborted");
-		const contentParts = Array.isArray(response.content) ? response.content : [];
-		const text = contentParts
-			.map(part => part.type === "text" ? part.text : "")
-			.join("")
-			.trim();
-		if (!text) throw new Error("Rewrite returned empty response");
-		return text;
 	}
 
 	async function generateSummaryForSelectedIndices(

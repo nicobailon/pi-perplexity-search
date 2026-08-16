@@ -1,10 +1,10 @@
-import { complete, type Api, type Message, type Model } from "@earendil-works/pi-ai/compat";
+import type { Api, Message, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import type { QueryResultData } from "./storage.ts";
 
 type ProviderHeaders = Record<string, string | null>;
-type CompleteFunction = typeof complete;
+type CompleteFunction = SummaryGenerationContext["modelRegistry"]["complete"];
 type SummaryModelRegistry = SummaryGenerationContext["modelRegistry"] & { complete?: CompleteFunction };
 
 const PREFERRED_SUMMARY_MODELS = [
@@ -285,8 +285,8 @@ export async function generateSummaryDraft(
 	}
 
 	const registry = ctx.modelRegistry as SummaryModelRegistry;
-	const usesRegistryComplete = !completeFn && typeof registry.complete === "function";
-	completeFn ??= usesRegistryComplete ? registry.complete!.bind(registry) as CompleteFunction : complete;
+	const usesRegistryComplete = !completeFn;
+	completeFn ??= registry.complete?.bind(registry);
 
 	const generationStartedAt = Date.now();
 	const deadlineController = new AbortController();
@@ -344,6 +344,10 @@ export async function generateSummaryDraft(
 
 		let lastError = resolved.errors.at(-1);
 		for (const { model, apiKey, headers } of resolved.candidates) {
+			if (!completeFn) {
+				lastError = "Summary model completion unavailable";
+				break;
+			}
 			const startedAt = Date.now();
 			try {
 				const userMessage: Message = {
