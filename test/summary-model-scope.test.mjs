@@ -13,6 +13,7 @@ const indexUrl = new URL("../index.ts", import.meta.url).href;
 const indexSrc = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const readmeSrc = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const summarySrc = readFileSync(new URL("../summary-review.ts", import.meta.url), "utf8");
+const queryRewriteSrc = readFileSync(new URL("../query-rewrite.ts", import.meta.url), "utf8");
 
 function summaryContext() {
 	const model = { provider: "anthropic", id: "claude-haiku-4-5" };
@@ -274,7 +275,7 @@ test("summary generation no longer uses catalog fallback or first available mode
 	assert.doesNotMatch(summarySrc, /getModel/);
 	assert.doesNotMatch(indexSrc, /getModel/);
 	assert.match(summarySrc, /findModelWithProviderRouting\(ctx\.modelRegistry, spec\.provider, spec\.id\)/);
-	assert.match(indexSrc, /findModelWithProviderRouting\(ctx\.modelRegistry, provider, id\)/);
+	assert.match(queryRewriteSrc, /findModelWithProviderRouting\(ctx\.modelRegistry, provider, id\)/);
 	assert.match(summarySrc, /modelMatchesEnabledPatterns\(model, enabledModelPatterns\)/);
 	assert.doesNotMatch(indexSrc, /defaultSummaryModel = summaryModels\[0\]\.value/);
 	assert.match(indexSrc, /modelMatchesEnabledPatterns\(model, enabledModelPatterns\)/);
