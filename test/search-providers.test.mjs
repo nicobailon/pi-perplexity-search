@@ -20,17 +20,20 @@ function runChild(script, env) {
 		"XDG_CONFIG_HOME",
 		"OPENAI_API_KEY",
 		"BRAVE_API_KEY",
+		"BRAVE_BASE_URL",
 		"PARALLEL_API_KEY",
 		"TINYFISH_API_KEY",
 		"SEARCH1API_KEY",
 		"SEARCHINFINITY_API_KEY",
 		"QUERIT_API_KEY",
 		"TAVILY_API_KEY",
+		"TAVILY_BASE_URL",
 		"FIRECRAWL_BASE_URL",
 		"FIRECRAWL_API_KEY",
 		"JINA_API_KEY",
 		"SEARXNG_BASE_URL",
 		"EXA_API_KEY",
+		"EXA_BASE_URL",
 		"PERPLEXITY_API_KEY",
 		"GEMINI_API_KEY",
 	]) {
@@ -164,6 +167,80 @@ test("Tavily search uses bearer auth and maps filters/content", async () => {
 	assert.equal(output.result.answer, "Tavily answer");
 	assert.deepEqual(output.result.results, [{ title: "Tavily Docs", url: "https://docs.tavily.com/search", snippet: "Search docs snippet" }]);
 	assert.deepEqual(output.result.inlineContent, [{ url: "https://docs.tavily.com/search", title: "Tavily Docs", content: "# Tavily Docs\nFull content", error: null }]);
+});
+
+test("Brave, keyed Exa, and Tavily honor configured API base URLs and environment overrides", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-provider-base-url-"));
+	await writeFile(join(home, "web-search.json"), JSON.stringify({
+		braveApiKey: "brave-config-key",
+		braveBaseUrl: "https://gateway.example.com/brave/res/v1/",
+		exaApiKey: "exa-config-key",
+		exaBaseUrl: "https://gateway.example.com/exa/",
+		tavilyApiKey: "tavily-config-key",
+		tavilyBaseUrl: "https://gateway.example.com/tavily/",
+	}) + "\n");
+
+	const child = runChild(`
+		const calls = [];
+		globalThis.fetch = async (url) => {
+			const target = String(url);
+			calls.push(target);
+			if (target.includes("/brave/res/v1/web/search?")) {
+				return new Response(JSON.stringify({ web: { results: [] } }), { status: 200 });
+			}
+			if (target.endsWith("/exa/answer")) {
+				return new Response(JSON.stringify({ answer: "answer", citations: [] }), { status: 200 });
+			}
+			if (target.endsWith("/exa/search")) {
+				return new Response(JSON.stringify({ results: [] }), { status: 200 });
+			}
+			if (target.endsWith("/tavily/search")) {
+				return new Response(JSON.stringify({ answer: "answer", results: [] }), { status: 200 });
+			}
+			throw new Error("Unexpected fetch " + target);
+		};
+
+		const { searchWithBrave } = await import(${JSON.stringify(braveModuleUrl)});
+		const { searchWithExa } = await import(${JSON.stringify(exaModuleUrl)});
+		const { searchWithTavily } = await import(${JSON.stringify(tavilyModuleUrl)});
+		await searchWithBrave("configured");
+		await searchWithExa("answer endpoint");
+		await searchWithExa("search endpoint", { numResults: 2 });
+		await searchWithTavily("configured");
+
+		process.env.BRAVE_BASE_URL = "https://env.example.com/brave/res/v1/";
+		process.env.EXA_BASE_URL = "https://env.example.com/exa/";
+		process.env.TAVILY_BASE_URL = "https://env.example.com/tavily/";
+		await searchWithBrave("environment");
+		await searchWithExa("environment");
+		await searchWithTavily("environment");
+
+		process.env.BRAVE_BASE_URL = "not-a-url";
+		let invalidError = "";
+		try {
+			await searchWithBrave("invalid");
+		} catch (error) {
+			invalidError = error.message;
+		}
+		console.log(JSON.stringify({ calls, invalidError }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.deepEqual(output.calls, [
+		"https://gateway.example.com/brave/res/v1/web/search?q=configured&count=5",
+		"https://gateway.example.com/exa/answer",
+		"https://gateway.example.com/exa/search",
+		"https://gateway.example.com/tavily/search",
+		"https://env.example.com/brave/res/v1/web/search?q=environment&count=5",
+		"https://env.example.com/exa/answer",
+		"https://env.example.com/tavily/search",
+	]);
+	assert.match(output.invalidError, /^BRAVE_BASE_URL must be an absolute HTTP\(S\) URL$/);
 });
 
 test("SearXNG search is SSRF-guarded and preferred first when configured", async () => {

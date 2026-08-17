@@ -12,6 +12,48 @@ export function getWebSearchConfigPath(): string {
 	return join(getWebSearchConfigDir(), "web-search.json");
 }
 
+interface ApiBaseUrlOptions {
+	configKey: string;
+	configuredValue: unknown;
+	defaultValue: string;
+	environmentKey: string;
+	environmentValue: string | undefined;
+}
+
+export function resolveApiBaseUrl(options: ApiBaseUrlOptions): string {
+	const fromEnvironment = options.environmentValue !== undefined;
+	const value = fromEnvironment ? options.environmentValue : options.configuredValue;
+	if (value === undefined) return options.defaultValue;
+
+	const source = fromEnvironment
+		? options.environmentKey
+		: `${options.configKey} in ${getWebSearchConfigPath()}`;
+	if (typeof value !== "string" || value.trim().length === 0) {
+		throw new Error(`${source} must be an absolute HTTP(S) URL`);
+	}
+
+	let url: URL;
+	try {
+		url = new URL(value.trim());
+	} catch {
+		throw new Error(`${source} must be an absolute HTTP(S) URL`);
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new Error(`${source} must be an absolute HTTP(S) URL`);
+	}
+	if (url.username || url.password) {
+		throw new Error(`${source} must not include credentials`);
+	}
+	if (url.search || url.hash) {
+		throw new Error(`${source} must not include query parameters or fragments`);
+	}
+
+	url.search = "";
+	url.hash = "";
+	url.pathname = url.pathname.replace(/\/+$/, "");
+	return url.toString().replace(/\/+$/, "");
+}
+
 export interface CuratorNetworkConfig {
 	/** Whether remote access was opted into via curatorRemote. */
 	enabled: boolean;
