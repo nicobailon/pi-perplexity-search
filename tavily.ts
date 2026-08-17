@@ -3,14 +3,15 @@ import { activityMonitor } from "./activity.ts";
 import type { ExtractedContent } from "./extract.ts";
 import type { SearchOptions, SearchResponse } from "./perplexity.ts";
 import { hasCredentialSource, redactCredential, resolveCredential } from "./credential-source.ts";
-import { getWebSearchConfigPath } from "./utils.ts";
+import { getWebSearchConfigPath, resolveApiBaseUrl } from "./utils.ts";
 
-const TAVILY_API_URL = "https://api.tavily.com/search";
+const TAVILY_API_BASE_URL = "https://api.tavily.com";
 const CONFIG_PATH = getWebSearchConfigPath();
 const SEARCH_TIMEOUT_MS = 60_000;
 
 interface WebSearchConfig {
 	tavilyApiKey?: unknown;
+	tavilyBaseUrl?: unknown;
 }
 
 interface TavilyResult {
@@ -55,6 +56,16 @@ async function getApiKey(signal?: AbortSignal): Promise<string | null> {
 		environmentValue: process.env.TAVILY_API_KEY,
 		signal,
 	});
+}
+
+function getApiUrl(): string {
+	return `${resolveApiBaseUrl({
+		configKey: "tavilyBaseUrl",
+		configuredValue: loadConfig().tavilyBaseUrl,
+		defaultValue: TAVILY_API_BASE_URL,
+		environmentKey: "TAVILY_BASE_URL",
+		environmentValue: process.env.TAVILY_BASE_URL,
+	})}/search`;
 }
 
 async function requireApiKey(signal?: AbortSignal): Promise<string> {
@@ -152,6 +163,7 @@ export function isTavilyAvailable(): boolean {
 }
 
 export async function searchWithTavily(query: string, options: TavilySearchOptions = {}): Promise<SearchResponse> {
+	const apiUrl = getApiUrl();
 	const apiKey = await requireApiKey(options.signal);
 	const numResults = normalizeCount(options.numResults);
 	const body: Record<string, unknown> = {
@@ -167,7 +179,7 @@ export async function searchWithTavily(query: string, options: TavilySearchOptio
 	const activityId = activityMonitor.logStart({ type: "api", query });
 	let response: Response;
 	try {
-		response = await fetch(TAVILY_API_URL, {
+		response = await fetch(apiUrl, {
 			method: "POST",
 			headers: {
 				"Authorization": `Bearer ${apiKey}`,

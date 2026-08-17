@@ -322,11 +322,14 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
   "openaiApiKey": "sk-...",
   "openaiResponsesUrl": "https://gateway.example.com/v1/responses",
   "braveApiKey": "BSA_...",
+  "braveBaseUrl": "https://gateway.example.com/brave/res/v1",
   "exaApiKey": "exa-...",
+  "exaBaseUrl": "https://gateway.example.com/exa",
   "parallelApiKey": "...",
   "tinyfishApiKey": "sk-tinyfish-...",
   "search1apiApiKey": "...",
   "tavilyApiKey": "tvly-...",
+  "tavilyBaseUrl": "https://gateway.example.com/tavily",
   "jinaApiKey": "$JINA_API_KEY",
   "serpdiveApiKey": "sd_live_...",
   "serpdiveModel": "krill",
@@ -439,9 +442,11 @@ All provider API-key fields (`openaiApiKey`, `braveApiKey`, `parallelApiKey`, `t
 }
 ```
 
-This syntax applies to provider credentials only; other configuration fields are not interpolated. `firecrawlApiKey`, `kagiApiKey`, `ollamaApiKey`, `valyuApiKey`, `serpbaseApiKey`, `serperApiKey`, and `brightdataApiKey` use the same credential-source rules, while `firecrawlBaseUrl`, `firecrawlApiVersion`, `firecrawlFreshScrape`, `brightdataSerpZone`, and `brightdataUnlockerZone` are literal config values.
+This syntax applies to provider credentials only; other configuration fields are not interpolated. `firecrawlApiKey`, `kagiApiKey`, `ollamaApiKey`, `valyuApiKey`, `serpbaseApiKey`, `serperApiKey`, and `brightdataApiKey` use the same credential-source rules, while `braveBaseUrl`, `exaBaseUrl`, `tavilyBaseUrl`, `firecrawlBaseUrl`, `firecrawlApiVersion`, `firecrawlFreshScrape`, `brightdataSerpZone`, and `brightdataUnlockerZone` are literal config values.
 
 A command source is not run while the extension loads or registers tools. Each selected provider request runs it again with a five-second timeout, a 16 KiB output limit, a minimized environment, and a one-line non-empty stdout requirement. Command text and stderr are omitted from errors. These commands are trusted local configuration, not a same-user process isolation boundary; use absolute executable paths and protect the config file. `OP_SESSION_*` variables are forwarded to trusted resolver commands so shell-local 1Password sessions can be reused without storing them in config. An explicit source overrides legacy provider environment variables and fails that provider locally rather than falling back with a stale credential. Direct Google Gemini API requests send the resolved key only in the `x-goog-api-key` header, never in the URL.
+
+Set `braveBaseUrl`, `exaBaseUrl`, or `tavilyBaseUrl` to route those providers through a compatible API gateway. `BRAVE_BASE_URL`, `EXA_BASE_URL`, and `TAVILY_BASE_URL` are the environment-variable equivalents and take precedence over config. Brave appends `/web/search`, Exa appends `/answer` or `/search`, and Tavily appends `/search`. Defaults remain the providers' official API roots. `exaBaseUrl` applies only to keyed direct API calls; zero-config Exa MCP search continues to use Exa's hosted MCP endpoint. Invalid overrides fail before a request is sent instead of falling back to an official endpoint.
 
 `authFetch` configures named local browser-cookie auth profiles for explicit `fetch_content` calls. A profile can be a host array (`"work": ["docs.company.com"]`) or an object with `hosts`, optional `chromeProfile`, `redirects: "same-origin"`, and `cache: "session" | "off"`.
 
