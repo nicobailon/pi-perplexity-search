@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { activityMonitor } from "./activity.ts";
 import type { SearchOptions, SearchResult, SearchResponse } from "./perplexity.ts";
 import { hasCredentialSource, redactCredential, resolveCredential } from "./credential-source.ts";
-import { getWebSearchConfigPath, resolveApiBaseUrl } from "./utils.ts";
+import { fetchWithCredentialRedirects, getWebSearchConfigPath, resolveApiBaseUrl } from "./utils.ts";
 
 const BRAVE_API_BASE_URL = "https://api.search.brave.com/res/v1";
 const CONFIG_PATH = getWebSearchConfigPath();
@@ -172,7 +172,7 @@ export async function searchWithBrave(
 	}
 
 	try {
-		const response = await fetch(`${apiUrl}?${params.toString()}`, {
+		const response = await fetchWithCredentialRedirects(`${apiUrl}?${params.toString()}`, {
 			method: "GET",
 			headers: {
 				"X-Subscription-Token": apiKey,
@@ -182,7 +182,7 @@ export async function searchWithBrave(
 			signal: options.signal
 				? AbortSignal.any([AbortSignal.timeout(SEARCH_TIMEOUT_MS), options.signal])
 				: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
-		});
+		}, ["X-Subscription-Token"]);
 
 		if (!response.ok) {
 			activityMonitor.logError(activityId, `HTTP ${response.status}`);

@@ -3,7 +3,7 @@ import { activityMonitor } from "./activity.ts";
 import type { ExtractedContent } from "./extract.ts";
 import type { SearchOptions, SearchResponse } from "./perplexity.ts";
 import { hasCredentialSource, redactCredential, resolveCredential } from "./credential-source.ts";
-import { getWebSearchConfigPath, resolveApiBaseUrl } from "./utils.ts";
+import { fetchWithCredentialRedirects, getWebSearchConfigPath, resolveApiBaseUrl } from "./utils.ts";
 
 const TAVILY_API_BASE_URL = "https://api.tavily.com";
 const CONFIG_PATH = getWebSearchConfigPath();
@@ -179,7 +179,7 @@ export async function searchWithTavily(query: string, options: TavilySearchOptio
 	const activityId = activityMonitor.logStart({ type: "api", query });
 	let response: Response;
 	try {
-		response = await fetch(apiUrl, {
+		response = await fetchWithCredentialRedirects(apiUrl, {
 			method: "POST",
 			headers: {
 				"Authorization": `Bearer ${apiKey}`,
@@ -187,7 +187,7 @@ export async function searchWithTavily(query: string, options: TavilySearchOptio
 			},
 			body: JSON.stringify(body),
 			signal: requestSignal(options.signal),
-		});
+		}, ["Authorization"]);
 	} catch (err) {
 		const message = errorMessage(err);
 		const redactedMessage = redactCredential(message, apiKey);

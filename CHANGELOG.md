@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added explicit-only Valyu and Serper search providers. Thanks to [@mikhel01](https://github.com/mikhel01) for issues #259 and #260.
-- Added configurable API base URLs for Brave, keyed Exa, and Tavily requests.
+- Added configurable API base URLs for Brave, keyed Exa, and Tavily requests, with credential stripping across redirect origins.
 
 ### Fixed
 - Keep valid AnySearch results when the API omits or nulls result content. Thanks to [@mikhel01](https://github.com/mikhel01) for #258.
