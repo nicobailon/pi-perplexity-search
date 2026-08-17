@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Added explicit-only Valyu and Serper search providers. Thanks to [@mikhel01](https://github.com/mikhel01) for issues #259 and #260.
 
+### Changed
+- Refresh built-in curator summary defaults from Haiku + Codex Spark to Haiku, GPT-5.6 Luna, Gemini 3.6 Flash, GPT-5 mini, and DeepSeek V4 Flash, and point query rewrite at GPT-5 mini instead of GPT-4.1 mini.
+
 ### Fixed
 - Keep valid AnySearch results when the API omits or nulls result content. Thanks to [@mikhel01](https://github.com/mikhel01) for #258.
 
