@@ -1220,6 +1220,7 @@ export default function (pi: ExtensionAPI) {
 		const preferredDefaults = [
 			{ provider: "anthropic", id: "claude-haiku-4-5" },
 			{ provider: "openai-codex", id: "gpt-5.6-luna" },
+			{ provider: "openai-codex", id: "gpt-5.6-terra" },
 			{ provider: "google", id: "gemini-3.6-flash" },
 			{ provider: "openai", id: "gpt-5-mini" },
 			{ provider: "deepseek", id: "deepseek-v4-flash" },
