@@ -3,7 +3,7 @@ import { activityMonitor } from "./activity.ts";
 import type { ExtractedContent } from "./extract.ts";
 import type { SearchOptions, SearchResponse } from "./perplexity.ts";
 import { hasCredentialSource, redactCredential, resolveCredential } from "./credential-source.ts";
-import { getWebSearchConfigPath, resolveApiBaseUrl } from "./utils.ts";
+import { fetchWithCredentialRedirects, getWebSearchConfigPath, resolveApiBaseUrl } from "./utils.ts";
 
 const EXA_API_BASE_URL = "https://api.exa.ai";
 const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
@@ -467,12 +467,12 @@ export async function searchWithExa(query: string, options: ExaSearchOptions = {
 
 	try {
 		if (!useSearch) {
-			const response = await fetch(`${apiBaseUrl}/answer`, {
+			const response = await fetchWithCredentialRedirects(`${apiBaseUrl}/answer`, {
 				method: "POST",
 				headers: exaApiHeaders(apiKey),
 				body: JSON.stringify({ query }),
 				signal: requestSignal(options.signal),
-			});
+			}, ["x-api-key"]);
 
 			if (!response.ok) {
 				const errorText = redactCredential(await response.text(), apiKey);
@@ -487,7 +487,7 @@ export async function searchWithExa(query: string, options: ExaSearchOptions = {
 			};
 		}
 
-		const response = await fetch(`${apiBaseUrl}/search`, {
+		const response = await fetchWithCredentialRedirects(`${apiBaseUrl}/search`, {
 			method: "POST",
 			headers: exaApiHeaders(apiKey),
 			body: JSON.stringify({
@@ -497,7 +497,7 @@ export async function searchWithExa(query: string, options: ExaSearchOptions = {
 					: { highlights: true },
 			}),
 			signal: requestSignal(options.signal),
-		});
+		}, ["x-api-key"]);
 
 		if (!response.ok) {
 			const errorText = redactCredential(await response.text(), apiKey);

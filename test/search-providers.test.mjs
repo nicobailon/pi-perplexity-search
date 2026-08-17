@@ -169,7 +169,7 @@ test("Tavily search uses bearer auth and maps filters/content", async () => {
 	assert.deepEqual(output.result.inlineContent, [{ url: "https://docs.tavily.com/search", title: "Tavily Docs", content: "# Tavily Docs\nFull content", error: null }]);
 });
 
-test("Brave, keyed Exa, and Tavily honor configured API base URLs and environment overrides", async () => {
+test("Brave, keyed Exa, and Tavily honor base URL overrides without leaking credentials across origins", async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-provider-base-url-"));
 	await writeFile(join(home, "web-search.json"), JSON.stringify({
 		braveApiKey: "brave-config-key",
@@ -182,9 +182,20 @@ test("Brave, keyed Exa, and Tavily honor configured API base URLs and environmen
 
 	const child = runChild(`
 		const calls = [];
-		globalThis.fetch = async (url) => {
+		globalThis.fetch = async (url, init = {}) => {
 			const target = String(url);
-			calls.push(target);
+			const headers = new Headers(init.headers);
+			calls.push({
+				target,
+				credential: headers.get("x-subscription-token") ?? headers.get("x-api-key") ?? headers.get("authorization"),
+				redirect: init.redirect,
+			});
+			if (target.startsWith("https://gateway.example.com/")) {
+				return new Response(null, {
+					status: 307,
+					headers: { location: target.replace("gateway.example.com", "redirect.example.com") },
+				});
+			}
 			if (target.includes("/brave/res/v1/web/search?")) {
 				return new Response(JSON.stringify({ web: { results: [] } }), { status: 200 });
 			}
@@ -231,15 +242,27 @@ test("Brave, keyed Exa, and Tavily honor configured API base URLs and environmen
 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.deepEqual(output.calls, [
+	assert.deepEqual(output.calls.map((call) => call.target), [
 		"https://gateway.example.com/brave/res/v1/web/search?q=configured&count=5",
+		"https://redirect.example.com/brave/res/v1/web/search?q=configured&count=5",
 		"https://gateway.example.com/exa/answer",
+		"https://redirect.example.com/exa/answer",
 		"https://gateway.example.com/exa/search",
+		"https://redirect.example.com/exa/search",
 		"https://gateway.example.com/tavily/search",
+		"https://redirect.example.com/tavily/search",
 		"https://env.example.com/brave/res/v1/web/search?q=environment&count=5",
 		"https://env.example.com/exa/answer",
 		"https://env.example.com/tavily/search",
 	]);
+	assert.deepEqual(output.calls.map((call) => call.credential), [
+		"brave-config-key", null,
+		"exa-config-key", null,
+		"exa-config-key", null,
+		"Bearer tavily-config-key", null,
+		"brave-config-key", "exa-config-key", "Bearer tavily-config-key",
+	]);
+	assert.ok(output.calls.every((call) => call.redirect === "manual"));
 	assert.match(output.invalidError, /^BRAVE_BASE_URL must be an absolute HTTP\(S\) URL$/);
 });
 

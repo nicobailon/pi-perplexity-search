@@ -54,6 +54,47 @@ export function resolveApiBaseUrl(options: ApiBaseUrlOptions): string {
 	return url.toString().replace(/\/+$/, "");
 }
 
+const API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_API_REDIRECTS = 5;
+
+export async function fetchWithCredentialRedirects(
+	url: string,
+	init: RequestInit,
+	credentialHeaders: readonly string[],
+): Promise<Response> {
+	let current = new URL(url);
+	let requestInit = init;
+
+	for (let redirects = 0; ; redirects++) {
+		const response = await fetch(current, { ...requestInit, redirect: "manual" });
+		if (!API_REDIRECT_STATUSES.has(response.status)) return response;
+
+		const location = response.headers.get("location");
+		if (!location) return response;
+		if (redirects === MAX_API_REDIRECTS) {
+			throw new Error(`Too many API redirects from ${url}`);
+		}
+
+		const next = new URL(location, current);
+		if (next.protocol !== "http:" && next.protocol !== "https:") {
+			throw new Error(`API redirect from ${current.origin} must use HTTP(S)`);
+		}
+		if (response.status === 303 || (
+			(response.status === 301 || response.status === 302)
+			&& requestInit.method?.toUpperCase() === "POST"
+		)) {
+			const { body: _body, ...withoutBody } = requestInit;
+			requestInit = { ...withoutBody, method: "GET" };
+		}
+		if (next.origin !== current.origin) {
+			const headers = new Headers(requestInit.headers);
+			for (const name of credentialHeaders) headers.delete(name);
+			requestInit = { ...requestInit, headers };
+		}
+		current = next;
+	}
+}
+
 export interface CuratorNetworkConfig {
 	/** Whether remote access was opted into via curatorRemote. */
 	enabled: boolean;
