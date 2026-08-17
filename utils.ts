@@ -55,6 +55,7 @@ export function resolveApiBaseUrl(options: ApiBaseUrlOptions): string {
 }
 
 const API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const API_REQUEST_BODY_HEADERS = ["Content-Encoding", "Content-Language", "Content-Location", "Content-Type"];
 const MAX_API_REDIRECTS = 5;
 
 export async function fetchWithCredentialRedirects(
@@ -79,12 +80,15 @@ export async function fetchWithCredentialRedirects(
 		if (next.protocol !== "http:" && next.protocol !== "https:") {
 			throw new Error(`API redirect from ${current.origin} must use HTTP(S)`);
 		}
-		if (response.status === 303 || (
-			(response.status === 301 || response.status === 302)
-			&& requestInit.method?.toUpperCase() === "POST"
-		)) {
+		const method = requestInit.method?.toUpperCase() ?? "GET";
+		if (
+			((response.status === 301 || response.status === 302) && method === "POST")
+			|| (response.status === 303 && method !== "GET" && method !== "HEAD")
+		) {
+			const headers = new Headers(requestInit.headers);
+			for (const name of API_REQUEST_BODY_HEADERS) headers.delete(name);
 			const { body: _body, ...withoutBody } = requestInit;
-			requestInit = { ...withoutBody, method: "GET" };
+			requestInit = { ...withoutBody, method: "GET", headers };
 		}
 		if (next.origin !== current.origin) {
 			const headers = new Headers(requestInit.headers);

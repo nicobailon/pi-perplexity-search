@@ -189,10 +189,13 @@ test("Brave, keyed Exa, and Tavily honor base URL overrides without leaking cred
 				target,
 				credential: headers.get("x-subscription-token") ?? headers.get("x-api-key") ?? headers.get("authorization"),
 				redirect: init.redirect,
+				method: init.method,
+				hasBody: init.body !== undefined,
+				contentType: headers.get("content-type"),
 			});
 			if (target.startsWith("https://gateway.example.com/")) {
 				return new Response(null, {
-					status: 307,
+					status: target.includes("/tavily/") ? 302 : 307,
 					headers: { location: target.replace("gateway.example.com", "redirect.example.com") },
 				});
 			}
@@ -263,6 +266,10 @@ test("Brave, keyed Exa, and Tavily honor base URL overrides without leaking cred
 		"brave-config-key", "exa-config-key", "Bearer tavily-config-key",
 	]);
 	assert.ok(output.calls.every((call) => call.redirect === "manual"));
+	assert.deepEqual(output.calls.slice(6, 8).map(({ method, hasBody, contentType }) => ({ method, hasBody, contentType })), [
+		{ method: "POST", hasBody: true, contentType: "application/json" },
+		{ method: "GET", hasBody: false, contentType: null },
+	]);
 	assert.match(output.invalidError, /^BRAVE_BASE_URL must be an absolute HTTP\(S\) URL$/);
 });
 
