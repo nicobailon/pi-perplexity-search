@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - Added configurable API base URLs for Brave, keyed Exa, and Tavily requests, with credential stripping across redirect origins. Thanks to [@XWIlluDelu](https://github.com/XWIlluDelu) for #265.
 
 ### Fixed
+- Recover useful Next.js RSC content when Readability only extracts a loading shell, and report full, partial, or failed background content fetches accurately (#272, #273).
 - Keep valid AnySearch results when the API omits or nulls result content. Thanks to [@mikhel01](https://github.com/mikhel01) for #258.
 
 ## [0.23.0] - 2026-08-15

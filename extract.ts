@@ -1159,7 +1159,7 @@ async function extractViaHttp(
 
 		if (!article) {
 			const rscResult = extractRSCContent(text);
-			if (rscResult) {
+			if (rscResult && rscResult.content.length >= MIN_USEFUL_CONTENT) {
 				activityMonitor.logComplete(activityId, response.status);
 				return {
 					url,
@@ -1192,6 +1192,16 @@ async function extractViaHttp(
 		activityMonitor.logComplete(activityId, response.status);
 
 		if (markdown.length < MIN_USEFUL_CONTENT) {
+			const rscResult = extractRSCContent(text);
+			if (rscResult && rscResult.content.length >= MIN_USEFUL_CONTENT) {
+				return {
+					url,
+					title: rscResult.title,
+					content: appendDeclaredWebLinks(rscResult.content, declaredLinks),
+					error: null,
+					declaredLinks,
+				};
+			}
 			return {
 				url,
 				title: article.title || documentTitle,

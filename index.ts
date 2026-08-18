@@ -984,10 +984,15 @@ export default function (pi: ExtensionAPI) {
 				} satisfies StoredSearchData & { type: "fetch"; urls: ExtractedContent[] };
 				pi.appendEntry("web-search-results", storeFetchedContentResult(fetchId, data));
 				const ok = fetched.filter(f => !f.error).length;
+				const availability = ok === fetched.length
+					? "Full page content now available."
+					: ok > 0
+						? "Partial page content now available."
+						: "No page content was fetched. Stored fetch diagnostics are available.";
 				pi.sendMessage(
 					{
 						customType: "web-search-content-ready",
-						content: `Content fetched for ${ok}/${fetched.length} URLs [${fetchId}]. Full page content now available.`,
+						content: `Content fetched for ${ok}/${fetched.length} URLs [${fetchId}]. ${availability}`,
 						display: true,
 					},
 					{ triggerTurn: true },
