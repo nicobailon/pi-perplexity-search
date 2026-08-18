@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 - Route nested model calls through Pi's model registry. Thanks to [@rany2](https://github.com/rany2) for #263.
 - Added explicit-only Parallel Search MCP support for keyless search and opt-in hosted fetch. Thanks to [@happytomatoe](https://github.com/happytomatoe) for #257.
 - Added explicit-only Valyu and Serper search providers. Thanks to [@mikhel01](https://github.com/mikhel01) for issues #259 and #260.
-- Added configurable API base URLs for Brave, keyed Exa, and Tavily requests, with credential stripping across redirect origins.
+- Added configurable API base URLs for Brave, keyed Exa, and Tavily requests, with credential stripping across redirect origins. Thanks to [@XWIlluDelu](https://github.com/XWIlluDelu) for #265.
 
 ### Fixed
 - Keep valid AnySearch results when the API omits or nulls result content. Thanks to [@mikhel01](https://github.com/mikhel01) for #258.
