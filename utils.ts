@@ -38,8 +38,8 @@ export function resolveApiBaseUrl(options: ApiBaseUrlOptions): string {
 	} catch {
 		throw new Error(`${source} must be an absolute HTTP(S) URL`);
 	}
-	if (url.protocol !== "http:" && url.protocol !== "https:") {
-		throw new Error(`${source} must be an absolute HTTP(S) URL`);
+	if (url.protocol !== "https:") {
+		throw new Error(`${source} must be an absolute HTTPS URL`);
 	}
 	if (url.username || url.password) {
 		throw new Error(`${source} must not include credentials`);

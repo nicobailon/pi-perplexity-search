@@ -236,7 +236,14 @@ test("Brave, keyed Exa, and Tavily honor base URL overrides without leaking cred
 		} catch (error) {
 			invalidError = error.message;
 		}
-		console.log(JSON.stringify({ calls, invalidError }));
+		process.env.BRAVE_BASE_URL = "http://gateway.example.com/brave/res/v1";
+		let plaintextError = "";
+		try {
+			await searchWithBrave("plaintext");
+		} catch (error) {
+			plaintextError = error.message;
+		}
+		console.log(JSON.stringify({ calls, invalidError, plaintextError }));
 	`, {
 		HOME: home,
 		USERPROFILE: home,
@@ -271,6 +278,7 @@ test("Brave, keyed Exa, and Tavily honor base URL overrides without leaking cred
 		{ method: "GET", hasBody: false, contentType: null },
 	]);
 	assert.match(output.invalidError, /^BRAVE_BASE_URL must be an absolute HTTP\(S\) URL$/);
+	assert.match(output.plaintextError, /^BRAVE_BASE_URL must be an absolute HTTPS URL$/);
 });
 
 test("SearXNG search is SSRF-guarded and preferred first when configured", async () => {
