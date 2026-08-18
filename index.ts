@@ -68,7 +68,7 @@ import { isSerpBaseAvailable } from "./serpbase.ts";
 import { isSerperAvailable } from "./serper.ts";
 import { isValyuAvailable } from "./valyu.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
-import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
+import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns, splitThinkingSuffix } from "./summary-model-scope.ts";
 import {
 	buildResearchArtifact,
 	withClaimAssessment,
@@ -1184,16 +1184,22 @@ export default function (pi: ExtensionAPI) {
 		];
 
 		const resolveAvailableModelValue = (selector: string): string | null => {
-			const slashIndex = selector.indexOf("/");
-			if (slashIndex <= 0 || slashIndex >= selector.length - 1) return null;
+			const parsed = splitThinkingSuffix(selector);
+			const slashIndex = parsed.value.indexOf("/");
+			if (slashIndex <= 0 || slashIndex >= parsed.value.length - 1) return null;
 			const model = findModelWithProviderRouting(
 				summaryContext.modelRegistry,
-				selector.slice(0, slashIndex),
-				selector.slice(slashIndex + 1),
+				parsed.value.slice(0, slashIndex),
+				parsed.value.slice(slashIndex + 1),
 			);
 			if (!model) return null;
 			const value = `${model.provider}/${model.id}`;
-			return availableValues.has(value) ? value : null;
+			if (!availableValues.has(value)) return null;
+			if (selector !== value && !seen.has(selector)) {
+				seen.add(selector);
+				summaryModels.push({ value: selector, label: selector });
+			}
+			return selector;
 		};
 
 		let defaultSummaryModel: string | null = null;

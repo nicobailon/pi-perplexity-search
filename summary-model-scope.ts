@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
+export type SummaryThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
 interface SummaryModelScopeContext {
 	cwd: string;
 	isProjectTrusted(): boolean;
@@ -78,11 +80,17 @@ export function summaryModelValue(model: ModelLike): string {
 	return `${model.provider}/${model.id}`;
 }
 
+export function splitThinkingSuffix(value: string): { value: string; thinkingLevel?: SummaryThinkingLevel } {
+	const index = value.lastIndexOf(":");
+	if (index < 0) return { value };
+	const suffix = value.slice(index + 1);
+	return THINKING_LEVELS.has(suffix)
+		? { value: value.slice(0, index), thinkingLevel: suffix as SummaryThinkingLevel }
+		: { value };
+}
+
 function stripThinkingSuffix(pattern: string): string {
-	const index = pattern.lastIndexOf(":");
-	if (index < 0) return pattern;
-	const suffix = pattern.slice(index + 1);
-	return THINKING_LEVELS.has(suffix) ? pattern.slice(0, index) : pattern;
+ return splitThinkingSuffix(pattern).value;
 }
 
 function globToRegExp(pattern: string): RegExp {

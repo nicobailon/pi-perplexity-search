@@ -38,7 +38,7 @@ const summaryResults = [{
 
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 const testAgentDir = await mkdtemp(join(tmpdir(), "pi-web-access-summary-deadline-"));
-await writeFile(join(testAgentDir, "settings.json"), JSON.stringify({ enabledModels: ["anthropic/claude-haiku-4-5"] }));
+await writeFile(join(testAgentDir, "settings.json"), JSON.stringify({ enabledModels: ["anthropic/claude-haiku-4-5", "openrouter/nvidia/nemotron-3-super-120b-a12b:free"] }));
 process.env.PI_CODING_AGENT_DIR = testAgentDir;
 after(() => {
 	if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -161,6 +161,102 @@ test("summary generation resolves preferred models through routed providers", as
 	assert.equal(completeCalled, true);
 	assert.equal(result.meta.fallbackUsed, false);
 	assert.equal(result.meta.model, "openrouter/anthropic/claude-haiku-4-5");
+});
+
+test("summaryModel thinking suffix strips before lookup and reaches completion options", async () => {
+	const model = { provider: "anthropic", id: "claude-haiku-4-5", reasoning: true };
+	const lookups = [];
+	let options;
+	const result = await generateSummaryDraft(
+		summaryResults,
+		{
+			modelRegistry: {
+				find: (provider, id) => {
+					lookups.push({ provider, id });
+					return model;
+				},
+				getAvailable: () => [],
+				getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
+			},
+			cwd: process.cwd(),
+			isProjectTrusted: () => false,
+		},
+		undefined,
+		"anthropic/claude-haiku-4-5:low",
+		undefined,
+		(_model, _request, requestOptions) => {
+			options = requestOptions;
+			return Promise.resolve({ stopReason: "stop", content: [{ type: "text", text: "Low-thinking summary" }] });
+		},
+		1000,
+	);
+
+	assert.ok(lookups.some(lookup => lookup.provider === "anthropic" && lookup.id === "claude-haiku-4-5"));
+	assert.equal(options.reasoning, "low");
+	assert.equal(options.reasoningEffort, "low");
+	assert.equal(result.meta.model, "anthropic/claude-haiku-4-5");
+});
+
+test("summaryModel keeps non-thinking colons in model ids", async () => {
+	const model = { provider: "openrouter", id: "nvidia/nemotron-3-super-120b-a12b:free", reasoning: true };
+	const lookups = [];
+	let options;
+	const result = await generateSummaryDraft(
+		summaryResults,
+		{
+			modelRegistry: {
+				find: (provider, id) => {
+					lookups.push({ provider, id });
+					return model;
+				},
+				getAvailable: () => [],
+				getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
+			},
+			cwd: process.cwd(),
+			isProjectTrusted: () => false,
+		},
+		undefined,
+		"openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+		undefined,
+		(_model, _request, requestOptions) => {
+			options = requestOptions;
+			return Promise.resolve({ stopReason: "stop", content: [{ type: "text", text: "Free model summary" }] });
+		},
+		1000,
+	);
+
+	assert.ok(lookups.some(lookup => lookup.provider === "openrouter" && lookup.id === "nvidia/nemotron-3-super-120b-a12b:free"));
+	assert.equal(options.reasoning, undefined);
+	assert.equal(options.reasoningEffort, undefined);
+	assert.equal(result.meta.model, "openrouter/nvidia/nemotron-3-super-120b-a12b:free");
+});
+
+test("summaryModel thinking suffix omits effort for non-reasoning models", async () => {
+	const model = { provider: "anthropic", id: "claude-haiku-4-5", reasoning: false };
+	let options;
+	await generateSummaryDraft(
+		summaryResults,
+		{
+			modelRegistry: {
+				find: () => model,
+				getAvailable: () => [model],
+				getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
+			},
+			cwd: process.cwd(),
+			isProjectTrusted: () => false,
+		},
+		undefined,
+		"anthropic/claude-haiku-4-5:low",
+		undefined,
+		(_model, _request, requestOptions) => {
+			options = requestOptions;
+			return Promise.resolve({ stopReason: "stop", content: [{ type: "text", text: "No-thinking summary" }] });
+		},
+		1000,
+	);
+
+	assert.equal(options.reasoning, "off");
+	assert.equal(options.reasoningEffort, undefined);
 });
 
 test("preferred models resolve through routed providers", () => {
