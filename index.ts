@@ -46,6 +46,7 @@ import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
 import { isBraveAvailable } from "./brave.ts";
 import { isOpenAISearchAvailable } from "./openai-search.ts";
 import { isParallelAvailable } from "./parallel.ts";
+import { isParallelMcpAvailable } from "./parallel-mcp.ts";
 import { isTinyFishAvailable } from "./tinyfish.ts";
 import { isSearch1APIAvailable } from "./search1api.ts";
 import { isSearchinfinityAvailable } from "./searchinfinity.ts";
@@ -155,6 +156,7 @@ interface ProviderAvailability {
 	openai: boolean;
 	brave: boolean;
 	parallel: boolean;
+	"parallel-mcp": boolean;
 	tinyfish: boolean;
 	search1api: boolean;
 	searchinfinity: boolean;
@@ -388,6 +390,7 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		openai: await isOpenAISearchAvailable(ctx),
 		brave: isBraveAvailable(),
 		parallel: isParallelAvailable(),
+		"parallel-mcp": isParallelMcpAvailable(),
 		tinyfish: isTinyFishAvailable(),
 		search1api: isSearch1APIAvailable(),
 		searchinfinity: isSearchinfinityAvailable(),
@@ -412,8 +415,8 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		valyu: isValyuAvailable(),
 	};
 	return {
-		// DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu are explicit-only, so they never make `all` eligible.
-		all: Object.entries(providers).some(([provider, available]) => provider !== "duckduckgo" && provider !== "anysearch" && provider !== "xai" && provider !== "brightdata" && provider !== "serpbase" && provider !== "serper" && provider !== "valyu" && provider !== "gemini" && available) || geminiApiAvail,
+		// Parallel MCP, DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu are explicit-only, so they never make `all` eligible.
+		all: Object.entries(providers).some(([provider, available]) => provider !== "parallel-mcp" && provider !== "duckduckgo" && provider !== "anysearch" && provider !== "xai" && provider !== "brightdata" && provider !== "serpbase" && provider !== "serper" && provider !== "valyu" && provider !== "gemini" && available) || geminiApiAvail,
 		...providers,
 	};
 }
@@ -1669,7 +1672,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, SearXNG, DuckDuckGo, Exa, Perplexity, Gemini, AnySearch, xAI, Bright Data, or SerpBase. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except DuckDuckGo, AnySearch, xAI, Bright Data, and SerpBase. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key; xAI search uses a SuperGrok/X Premium subscription or xAI API key. DuckDuckGo, AnySearch, xAI, Bright Data, and SerpBase are available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
+			`Search the web using OpenAI, Brave, Parallel, Parallel MCP, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, SearXNG, DuckDuckGo, Exa, Perplexity, Gemini, AnySearch, Valyu, xAI, Bright Data, SerpBase, or Serper. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except Parallel MCP, DuckDuckGo, AnySearch, Valyu, xAI, Bright Data, SerpBase, and Serper. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key; xAI search uses a SuperGrok/X Premium subscription or xAI API key. Parallel MCP, DuckDuckGo, AnySearch, Valyu, xAI, Bright Data, SerpBase, and Serper are available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
@@ -1681,7 +1684,7 @@ export default function (pi: ExtensionAPI) {
 				StringEnum(["day", "week", "month", "year"], { description: "Filter by recency" }),
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
-			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; use all to search every eligible provider except DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu, omit this field to use the configured provider, or use auto when none is configured")),
+			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; use all to search every eligible provider except Parallel MCP, DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu, omit this field to use the configured provider, or use auto when none is configured")),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
 					description: "Search workflow mode: none = no curator, summary-review = open curator with auto summary draft (default), auto-summary = generate summary without opening curator",

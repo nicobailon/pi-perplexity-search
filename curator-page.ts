@@ -8,7 +8,7 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
+	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
@@ -18,6 +18,7 @@ function buildProviderButtons(
 		{ value: "exa", label: "Exa", available: available.exa },
 		{ value: "brave", label: "Brave", available: available.brave },
 		{ value: "parallel", label: "Parallel", available: available.parallel },
+		{ value: "parallel-mcp", label: "Parallel MCP", available: available["parallel-mcp"] },
 		{ value: "tinyfish", label: "TinyFish", available: available.tinyfish },
 		{ value: "search1api", label: "Search1API", available: available.search1api },
 		{ value: "searchinfinity", label: "Searchinfinity", available: available.searchinfinity },
@@ -57,7 +58,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
+	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
@@ -1458,7 +1459,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "bocha", "ollama", "searxng", "duckduckgo", "perplexity", "gemini", "anysearch", "xai", "brightdata", "serpbase", "serper", "valyu"];
+  var providers = ["all", "openai", "exa", "brave", "parallel", "parallel-mcp", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "bocha", "ollama", "searxng", "duckduckgo", "perplexity", "gemini", "anysearch", "xai", "brightdata", "serpbase", "serper", "valyu"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";

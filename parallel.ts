@@ -84,7 +84,7 @@ function isPlaceholderApiKey(key: string): boolean {
 	return normalized.length < MIN_PARALLEL_API_KEY_LENGTH || PLACEHOLDER_API_KEY_DENYLIST.has(normalized.toLowerCase());
 }
 
-async function resolveApiKey(signal?: AbortSignal): Promise<string | null> {
+export async function resolveParallelApiKey(signal?: AbortSignal): Promise<string | null> {
 	const configKey = normalizeApiKey(loadConfig().parallelApiKey);
 	if (configKey?.startsWith("$") || configKey?.startsWith("!")) {
 		const resolved = await resolveCredential({
@@ -116,7 +116,7 @@ function hasConfiguredApiKey(): boolean {
 }
 
 async function getApiKey(signal?: AbortSignal): Promise<string> {
-	const key = await resolveApiKey(signal);
+	const key = await resolveParallelApiKey(signal);
 	if (!key) {
 		throw new Error(
 			"Parallel API key not found. Either:\n" +

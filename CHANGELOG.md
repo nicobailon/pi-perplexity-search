@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added explicit-only Parallel Search MCP support for keyless search and opt-in hosted fetch. Thanks to [@happytomatoe](https://github.com/happytomatoe) for #257.
 - Added explicit-only Valyu and Serper search providers. Thanks to [@mikhel01](https://github.com/mikhel01) for issues #259 and #260.
 
 ### Fixed

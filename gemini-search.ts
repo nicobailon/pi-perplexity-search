@@ -9,6 +9,7 @@ import { isExaAvailable, searchWithExa } from "./exa.ts";
 import { isBraveAvailable, searchWithBrave } from "./brave.ts";
 import { isOpenAISearchAvailable, searchWithOpenAI } from "./openai-search.ts";
 import { isParallelAvailable, searchWithParallel } from "./parallel.ts";
+import { isParallelMcpAvailable, searchWithParallelMcp } from "./parallel-mcp.ts";
 import { isTinyFishAvailable, searchWithTinyFish } from "./tinyfish.ts";
 import { isSearch1APIAvailable, searchWithSearch1API } from "./search1api.ts";
 import { isSearchinfinityAvailable, searchWithSearchinfinity } from "./searchinfinity.ts";
@@ -30,7 +31,7 @@ import { isSerperAvailable, searchWithSerper } from "./serper.ts";
 import { isValyuAvailable, searchWithValyu } from "./valyu.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "searxng", "duckduckgo", "perplexity", "gemini", "exa", "serpdive", "kagi", "ollama", "anysearch", "xai", "brightdata", "serpbase", "serper", "valyu", "bocha"] as const;
+export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "parallel-mcp", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "searxng", "duckduckgo", "perplexity", "gemini", "exa", "serpdive", "kagi", "ollama", "anysearch", "xai", "brightdata", "serpbase", "serper", "valyu", "bocha"] as const;
 export const SEARCH_PROVIDERS = ["auto", "all", ...RESOLVED_SEARCH_PROVIDERS] as const;
 
 export type ResolvedSearchProvider = typeof RESOLVED_SEARCH_PROVIDERS[number];
@@ -92,7 +93,7 @@ export interface AttributedSearchResponse extends SearchResponse {
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
-// Explicit-only providers (DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, Valyu) are deliberately absent:
+// Explicit-only providers (Parallel MCP, DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, Valyu) are deliberately absent:
 // `all` must never fan out to an opt-in or paid provider without the user asking for it.
 const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "ollama", "perplexity", "gemini", "bocha"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network", "invalid-response"] as const;
@@ -302,6 +303,7 @@ async function searchWithResolvedProvider(
 	}
 	if (provider === "brave") return { ...(await searchWithBrave(query, options)), provider };
 	if (provider === "parallel") return { ...(await searchWithParallel(query, options)), provider };
+	if (provider === "parallel-mcp") return { ...(await searchWithParallelMcp(query, options)), provider };
 	if (provider === "tinyfish") return { ...(await searchWithTinyFish(query, options)), provider };
 	if (provider === "search1api") return { ...(await searchWithSearch1API(query, options)), provider };
 	if (provider === "searchinfinity") return { ...(await searchWithSearchinfinity(query, options)), provider };
@@ -341,6 +343,7 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "openai") return isOpenAISearchAvailable(options.extensionContext);
 	if (provider === "brave") return isBraveAvailable();
 	if (provider === "parallel") return isParallelAvailable();
+	if (provider === "parallel-mcp") return isParallelMcpAvailable();
 	if (provider === "tinyfish") return isTinyFishAvailable();
 	if (provider === "search1api") return isSearch1APIAvailable();
 	if (provider === "searchinfinity") return isSearchinfinityAvailable();
@@ -367,6 +370,7 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 
 function providerLabel(provider: ResolvedSearchProvider): string {
 	if (provider === "openai") return "OpenAI";
+	if (provider === "parallel-mcp") return "Parallel MCP";
 	if (provider === "tinyfish") return "TinyFish";
 	if (provider === "search1api") return "Search1API";
 	if (provider === "searchinfinity") return "Searchinfinity";
@@ -409,7 +413,7 @@ async function searchWithProviders(
 			: await isResolvedProviderAvailable(provider, options),
 	})))).filter((entry) => entry.available).map((entry) => entry.provider);
 	if (providers.length === 0) {
-		throw new Error("No configured search provider available for provider \"all\". AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu are excluded.");
+		throw new Error("No configured search provider available for provider \"all\". Parallel MCP, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu are excluded.");
 	}
 
 	const settled = await Promise.allSettled(

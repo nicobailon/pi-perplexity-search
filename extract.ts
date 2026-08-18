@@ -12,6 +12,7 @@ import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, ex
 import { CredentialResolutionError } from "./credential-source.ts";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
+import { extractWithParallelMcp } from "./parallel-mcp.ts";
 import { extractWithTinyFish, isTinyFishAvailable } from "./tinyfish.ts";
 import { extractWithSearch1API, isSearch1APIAvailable } from "./search1api.ts";
 import { extractWithQuerit, isQueritAvailable } from "./querit.ts";
@@ -34,11 +35,11 @@ const NON_RECOVERABLE_ERRORS = ["Unsupported content type", "Response too large"
 const MIN_USEFUL_CONTENT = 500;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
-const FETCH_PROVIDERS = ["http", "firecrawl", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "brightdata", "gemini"] as const;
+const FETCH_PROVIDERS = ["http", "firecrawl", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "parallel-mcp", "brightdata", "gemini"] as const;
 type FetchProvider = typeof FETCH_PROVIDERS[number];
 type FetchRouting = { providers: FetchProvider[]; allowRemoteHostedProviders: boolean };
 const DEFAULT_FETCH_PROVIDER_ORDER: FetchProvider[] = ["http", "firecrawl", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "brightdata", "gemini"];
-const REMOTE_HOSTED_FETCH_PROVIDERS = new Set<FetchProvider>(["jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "brightdata", "gemini"]);
+const REMOTE_HOSTED_FETCH_PROVIDERS = new Set<FetchProvider>(["jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "parallel-mcp", "brightdata", "gemini"]);
 
 export { loadSsrfConfig } from "./ssrf-protection.ts";
 
@@ -668,6 +669,7 @@ export async function extractContent(
 	let kagiError: string | null = null;
 	let ollamaError: string | null = null;
 	let parallelError: string | null = null;
+	let parallelMcpError: string | null = null;
 	let brightdataError: string | null = null;
 
 	if (remoteUrl && providerOrder[0] !== "http") {
@@ -803,6 +805,18 @@ export async function extractContent(
 			continue;
 		}
 
+		if (provider === "parallel-mcp") {
+			try {
+				const parallelMcpResult = await extractWithParallelMcp(url, signal, options);
+				if (parallelMcpResult) return withDeclaredLinks(parallelMcpResult);
+			} catch (err) {
+				if (isAbortError(err)) return abortedResult(url);
+				parallelMcpError = errorMessage(err);
+				if (isConfigParseError(err)) return parseErrorResult(parallelMcpError);
+			}
+			continue;
+		}
+
 		if (provider === "brightdata") {
 			try {
 				if (isBrightDataUnlockerAvailable()) {
@@ -850,6 +864,7 @@ export async function extractContent(
 		...(kagiError ? [`Kagi fallback failed: ${kagiError}`] : []),
 		...(ollamaError ? [`Ollama fallback failed: ${ollamaError}`] : []),
 		...(parallelError ? [`Parallel fallback failed: ${parallelError}`] : []),
+		...(parallelMcpError ? [`Parallel MCP fallback failed: ${parallelMcpError}`] : []),
 		...(brightdataError ? [`Bright Data fallback failed: ${brightdataError}`] : []),
 		"",
 		"Fallback options:",
