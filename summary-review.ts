@@ -1,10 +1,10 @@
-import type { Api, Message, Model } from "@earendil-works/pi-ai";
+import { complete, type Api, type Message, type Model } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import type { QueryResultData } from "./storage.ts";
 
 type ProviderHeaders = Record<string, string | null>;
-type CompleteFunction = SummaryGenerationContext["modelRegistry"]["complete"];
+type CompleteFunction = typeof complete;
 type SummaryModelRegistry = SummaryGenerationContext["modelRegistry"] & { complete?: CompleteFunction };
 
 const PREFERRED_SUMMARY_MODELS = [
@@ -285,8 +285,8 @@ export async function generateSummaryDraft(
 	}
 
 	const registry = ctx.modelRegistry as SummaryModelRegistry;
-	const usesRegistryComplete = !completeFn;
-	completeFn ??= registry.complete?.bind(registry);
+	const usesRegistryComplete = !completeFn && typeof registry.complete === "function";
+	completeFn ??= usesRegistryComplete ? registry.complete!.bind(registry) as CompleteFunction : complete;
 
 	const generationStartedAt = Date.now();
 	const deadlineController = new AbortController();
@@ -344,10 +344,6 @@ export async function generateSummaryDraft(
 
 		let lastError = resolved.errors.at(-1);
 		for (const { model, apiKey, headers } of resolved.candidates) {
-			if (!completeFn) {
-				lastError = "Summary model completion unavailable";
-				break;
-			}
 			const startedAt = Date.now();
 			try {
 				const userMessage: Message = {
@@ -367,13 +363,13 @@ export async function generateSummaryDraft(
 
 				const contentParts = Array.isArray(response.content) ? response.content : [];
 				const summary = contentParts
-					.map(part => getTextFromContentPart(part))
-					.filter(text => text.trim().length > 0)
+					.map((part: unknown) => getTextFromContentPart(part))
+					.filter((text: string) => text.trim().length > 0)
 					.join("\n")
 					.trim();
 
 				if (summary.length === 0) {
-					const partTypes = contentParts.map(part => getContentPartType(part));
+					const partTypes = contentParts.map((part: unknown) => getContentPartType(part));
 					const typesLabel = partTypes.length > 0 ? partTypes.join(", ") : "none";
 					throw new Error(`Summary model returned empty response (content parts: ${typesLabel})`);
 				}

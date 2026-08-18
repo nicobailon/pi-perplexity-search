@@ -1,4 +1,4 @@
-import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
+import { complete, type Api, type Model, type ProviderHeaders } from "@earendil-works/pi-ai/compat";
 import type { SummaryGenerationContext } from "./summary-review.ts";
 import { findModelWithProviderRouting, loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 
@@ -26,7 +26,10 @@ export async function rewriteSearchQuery(
 		{ provider: "google", id: "gemini-3.6-flash" },
 		{ provider: "openai", id: "gpt-4.1-mini" },
 	]);
-	const response = await ctx.modelRegistry.complete(
+	const registry = ctx.modelRegistry as typeof ctx.modelRegistry & { complete?: typeof complete };
+	const usesRegistryComplete = typeof registry.complete === "function";
+	const completeFn = usesRegistryComplete ? registry.complete!.bind(registry) : complete;
+	const response = await completeFn(
 		model,
 		{
 			messages: [{
@@ -35,12 +38,12 @@ export async function rewriteSearchQuery(
 				timestamp: Date.now(),
 			}],
 		},
-		{ apiKey, headers, signal },
+		usesRegistryComplete ? { signal } : { apiKey, headers, signal },
 	);
 	if (response.stopReason === "aborted") throw new Error("Aborted");
 	const contentParts = Array.isArray(response.content) ? response.content : [];
 	const text = contentParts
-		.map(part => part.type === "text" ? part.text : "")
+		.map((part: unknown) => part && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string" ? (part as { text: string }).text : "")
 		.join("")
 		.trim();
 	if (!text) throw new Error("Rewrite returned empty response");
