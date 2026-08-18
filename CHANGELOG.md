@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Refreshed default summary and query rewrite model preferences. Thanks to [@hyein-cbio](https://github.com/hyein-cbio) for #266.
 - Added `summaryModel` thinking-level suffix support. Thanks to [@pkos98](https://github.com/pkos98) for issue #264.
 - Route nested model calls through Pi's model registry. Thanks to [@rany2](https://github.com/rany2) for #263.
 - Added explicit-only Parallel Search MCP support for keyless search and opt-in hosted fetch. Thanks to [@happytomatoe](https://github.com/happytomatoe) for #257.

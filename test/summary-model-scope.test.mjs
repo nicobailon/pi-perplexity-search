@@ -376,3 +376,16 @@ test("summary generation no longer uses catalog fallback or first available mode
 	assert.doesNotMatch(indexSrc, /defaultSummaryModel = summaryModels\[0\]\.value/);
 	assert.match(indexSrc, /modelMatchesEnabledPatterns\(model, enabledModelPatterns\)/);
 });
+
+test("summary and query rewrite defaults use the refreshed model order", () => {
+	for (const src of [summarySrc, indexSrc]) {
+		assert(src.indexOf('id: "claude-haiku-4-5"') < src.indexOf('id: "gpt-5.6-luna"'));
+		assert(src.indexOf('id: "gpt-5.6-luna"') < src.indexOf('id: "gpt-5.6-terra"'));
+		assert(src.indexOf('id: "gpt-5.6-terra"') < src.indexOf('id: "gemini-3.6-flash"'));
+		assert(src.indexOf('id: "gemini-3.6-flash"') < src.indexOf('id: "gpt-5-mini"'));
+		assert(src.indexOf('id: "gpt-5-mini"') < src.indexOf('id: "deepseek-v4-flash"'));
+		assert.doesNotMatch(src, /gpt-5\.3-codex-spark/);
+	}
+	assert.match(queryRewriteSrc, /id: "gpt-5-mini"/);
+	assert.doesNotMatch(queryRewriteSrc, /gpt-4\.1-mini/);
+});

@@ -1180,7 +1180,11 @@ export default function (pi: ExtensionAPI) {
 		const configuredSummaryModel = typeof config.summaryModel === "string" ? config.summaryModel.trim() : "";
 		const preferredDefaults = [
 			{ provider: "anthropic", id: "claude-haiku-4-5" },
-			{ provider: "openai-codex", id: "gpt-5.3-codex-spark" },
+			{ provider: "openai-codex", id: "gpt-5.6-luna" },
+			{ provider: "openai-codex", id: "gpt-5.6-terra" },
+			{ provider: "google", id: "gemini-3.6-flash" },
+			{ provider: "openai", id: "gpt-5-mini" },
+			{ provider: "deepseek", id: "deepseek-v4-flash" },
 		];
 
 		const resolveAvailableModelValue = (selector: string): string | null => {

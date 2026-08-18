@@ -24,7 +24,7 @@ export async function rewriteSearchQuery(
 	const { model, apiKey, headers } = await resolveFirstAvailableModel(ctx, [
 		{ provider: "anthropic", id: "claude-haiku-4-5" },
 		{ provider: "google", id: "gemini-3.6-flash" },
-		{ provider: "openai", id: "gpt-4.1-mini" },
+		{ provider: "openai", id: "gpt-5-mini" },
 	]);
 	const registry = ctx.modelRegistry as typeof ctx.modelRegistry & { complete?: typeof complete };
 	const usesRegistryComplete = typeof registry.complete === "function";
