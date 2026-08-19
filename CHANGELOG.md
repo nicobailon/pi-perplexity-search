@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added `pdf.maxPages` to limit Datalab, Gemini, and local PDF extraction to the first N pages. Thanks to [@jaudiger](https://github.com/jaudiger) for issue #277.
+- Added optional `openaiSearchProviders` config to choose which Pi model providers fund OpenAI `web_search`, in priority order.
 
 ## [0.24.0] - 2026-08-18
 

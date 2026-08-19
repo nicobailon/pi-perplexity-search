@@ -19,7 +19,7 @@ const MODEL_PREFERENCE = [
 	(id: string) => id.includes("terra"),
 	(id: string) => /^gpt-\d+(\.\d+)?$/.test(id),
 ];
-const SEARCH_PROVIDERS = ["openai-codex", "openai"] as const;
+const DEFAULT_SEARCH_PROVIDERS: readonly string[] = ["openai-codex", "openai"];
 
 function pickSearchModel<T extends { id: string }>(models: readonly T[]): T | undefined {
 	const candidates = models
@@ -36,12 +36,13 @@ interface WebSearchConfig {
 	openaiApiKey?: unknown;
 	openaiResponsesUrl?: unknown;
 	openaiSearchModel?: unknown;
+	openaiSearchProviders?: unknown;
 }
 
 type ProviderHeaders = Record<string, string | null>;
 
 interface OpenAIAuth {
-	provider: "openai-codex" | "openai";
+	provider: string;
 	apiKey: string;
 	model: string;
 	headers: ProviderHeaders;
@@ -149,6 +150,14 @@ function resolveConfiguredResponsesUrl(value: unknown): string {
 	return url.toString();
 }
 
+function resolveConfiguredSearchProviders(value: unknown): readonly string[] {
+	if (value === undefined) return DEFAULT_SEARCH_PROVIDERS;
+	if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)) {
+		throw new Error(`openaiSearchProviders in ${CONFIG_PATH} must be an array of non-empty Pi provider ids`);
+	}
+	return value.map((entry) => entry.trim());
+}
+
 function resolveConfiguredSearchModel(value: unknown): string | undefined {
 	if (value == null) return undefined;
 	if (typeof value !== "string" || value.trim().length === 0) {
@@ -165,14 +174,14 @@ function toRequestHeaders(headers: ProviderHeaders): Record<string, string> {
 	return requestHeaders;
 }
 
-async function resolvePiAuth(ctx: ExtensionContext, responsesUrl: string, modelOverride?: string): Promise<OpenAIAuth | undefined> {
+async function resolvePiAuth(ctx: ExtensionContext, responsesUrl: string, providers: readonly string[], modelOverride?: string): Promise<OpenAIAuth | undefined> {
 	let models: ReturnType<typeof ctx.modelRegistry.getAll>;
 	try {
 		models = ctx.modelRegistry.getAll();
 	} catch {
 		return undefined;
 	}
-	for (const provider of SEARCH_PROVIDERS) {
+	for (const provider of providers) {
 		const preferred = pickSearchModel(models.filter((model) => model.provider === provider));
 		if (!preferred) continue;
 		try {
@@ -197,7 +206,8 @@ export async function resolveOpenAIAuth(ctx?: ExtensionContext, signal?: AbortSi
 	const responsesUrl = resolveConfiguredResponsesUrl(config.openaiResponsesUrl);
 	const modelOverride = resolveConfiguredSearchModel(config.openaiSearchModel);
 	if (ctx) {
-		const auth = await resolvePiAuth(ctx, responsesUrl, modelOverride);
+		const providers = resolveConfiguredSearchProviders(config.openaiSearchProviders);
+		const auth = await resolvePiAuth(ctx, responsesUrl, providers, modelOverride);
 		if (auth) return auth;
 	}
 
@@ -221,7 +231,7 @@ export async function resolveOpenAIAuth(ctx?: ExtensionContext, signal?: AbortSi
 export async function isOpenAISearchAvailable(ctx?: ExtensionContext): Promise<boolean> {
 	const config = loadConfig();
 	const responsesUrl = resolveConfiguredResponsesUrl(config.openaiResponsesUrl);
-	if (ctx && await resolvePiAuth(ctx, responsesUrl)) return true;
+	if (ctx && await resolvePiAuth(ctx, responsesUrl, resolveConfiguredSearchProviders(config.openaiSearchProviders))) return true;
 	return hasCredentialSource({
 		provider: "OpenAI",
 		configuredValue: config.openaiApiKey,
