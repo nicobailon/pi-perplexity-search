@@ -1035,23 +1035,37 @@ test("OpenAI search rejects invalid openaiSearchProviders", async () => {
 			},
 		};
 
+		let fetchCalls = 0;
+		globalThis.fetch = async () => {
+			fetchCalls += 1;
+			return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+		};
+
 		const { searchWithOpenAI } = await import(${JSON.stringify(openaiModuleUrl)});
-		try {
-			await searchWithOpenAI("invalid config", { numResults: 1 }, ctx);
-			console.log(JSON.stringify({ threw: false }));
-		} catch (err) {
-			console.log(JSON.stringify({ threw: true, message: err.message }));
+		const outcomes = {};
+		for (const [label, maybeCtx] of [["withContext", ctx], ["withoutContext", undefined]]) {
+			try {
+				await searchWithOpenAI("invalid config", { numResults: 1 }, maybeCtx);
+				outcomes[label] = { threw: false };
+			} catch (err) {
+				outcomes[label] = { threw: true, message: err.message };
+			}
 		}
+		console.log(JSON.stringify({ outcomes, fetchCalls }));
 	`, {
 		HOME: home,
 		USERPROFILE: home,
 		PI_CODING_AGENT_DIR: home,
+		OPENAI_API_KEY: "sk-must-not-be-billed",
 	});
 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.equal(output.threw, true);
-	assert.match(output.message, /openaiSearchProviders/);
+	assert.equal(output.outcomes.withContext.threw, true);
+	assert.match(output.outcomes.withContext.message, /openaiSearchProviders/);
+	assert.equal(output.outcomes.withoutContext.threw, true);
+	assert.match(output.outcomes.withoutContext.message, /openaiSearchProviders/);
+	assert.equal(output.fetchCalls, 0);
 });
 
 test("Gemini API search uses its search-only default model", async () => {

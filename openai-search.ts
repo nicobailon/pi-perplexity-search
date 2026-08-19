@@ -205,8 +205,8 @@ export async function resolveOpenAIAuth(ctx?: ExtensionContext, signal?: AbortSi
 	const config = loadConfig();
 	const responsesUrl = resolveConfiguredResponsesUrl(config.openaiResponsesUrl);
 	const modelOverride = resolveConfiguredSearchModel(config.openaiSearchModel);
+	const providers = resolveConfiguredSearchProviders(config.openaiSearchProviders);
 	if (ctx) {
-		const providers = resolveConfiguredSearchProviders(config.openaiSearchProviders);
 		const auth = await resolvePiAuth(ctx, responsesUrl, providers, modelOverride);
 		if (auth) return auth;
 	}
@@ -231,7 +231,8 @@ export async function resolveOpenAIAuth(ctx?: ExtensionContext, signal?: AbortSi
 export async function isOpenAISearchAvailable(ctx?: ExtensionContext): Promise<boolean> {
 	const config = loadConfig();
 	const responsesUrl = resolveConfiguredResponsesUrl(config.openaiResponsesUrl);
-	if (ctx && await resolvePiAuth(ctx, responsesUrl, resolveConfiguredSearchProviders(config.openaiSearchProviders))) return true;
+	const providers = resolveConfiguredSearchProviders(config.openaiSearchProviders);
+	if (ctx && await resolvePiAuth(ctx, responsesUrl, providers)) return true;
 	return hasCredentialSource({
 		provider: "OpenAI",
 		configuredValue: config.openaiApiKey,
