@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 - Added `pdf.maxPages` to limit Datalab, Gemini, and local PDF extraction to the first N pages. Thanks to [@jaudiger](https://github.com/jaudiger) for issue #277.
 - Added optional `openaiSearchProviders` config to choose which Pi model providers fund OpenAI `web_search`, in priority order. Thanks to [@hank-warren](https://github.com/hank-warren) for PR #276.
 
+### Fixed
+- Replaced inline RFC 2397 `data:` URIs in extracted page content with explicit bounded omission markers (MIME type, encoding, encoded/decoded byte counts, SHA-256 digest, `retrieval=not-retained`) before content reaches tool results, the fetch cache, or session persistence. Readable prose and Markdown image alt text are preserved; typed thumbnail/frame image blocks are unaffected.
+
 ## [0.24.0] - 2026-08-18
 
 ### Highlights

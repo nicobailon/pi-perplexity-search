@@ -27,6 +27,7 @@ import { formatSeconds, getWebSearchConfigPath } from "./utils.ts";
 import { isImageEnabled } from "./feature-config.ts";
 import { assertAuthFetchUrl, authFetchRedirectGuard, type AuthFetchProfile } from "./auth-fetch.ts";
 import { getBrowserCookiesForHosts, getLastBrowserCookieDiagnostic } from "./chrome-cookies.ts";
+import { sanitizeInlineDataUris } from "./data-uri-sanitize.ts";
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const CONCURRENT_LIMIT = 3;
@@ -1250,5 +1251,13 @@ export async function fetchAllContent(
 	signal?: AbortSignal,
 	options?: ExtractOptions,
 ): Promise<ExtractedContent[]> {
-	return Promise.all(urls.map((url) => fetchLimit(() => extractContent(url, signal, options))));
+	const results = await Promise.all(urls.map((url) => fetchLimit(() => extractContent(url, signal, options))));
+	// Inline data: URIs in extracted markdown would otherwise flow into tool
+	// results and the fetch cache as opaque base64; typed thumbnail/frame image
+	// blocks are deliberate outputs and are left untouched.
+	return results.map((result, index) => {
+		if (!result.content || !result.content.includes("data:")) return result;
+		const sanitized = sanitizeInlineDataUris(result.content, `urls[${index}].content`);
+		return sanitized.omissions.length > 0 ? { ...result, content: sanitized.text } : result;
+	});
 }
