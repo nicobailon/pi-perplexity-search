@@ -1256,7 +1256,7 @@ export async function fetchAllContent(
 	// results and the fetch cache as opaque base64; typed thumbnail/frame image
 	// blocks are deliberate outputs and are left untouched.
 	return results.map((result, index) => {
-		if (!result.content || !result.content.includes("data:")) return result;
+		if (!result.content) return result;
 		const sanitized = sanitizeInlineDataUris(result.content, `urls[${index}].content`);
 		return sanitized.omissions.length > 0 ? { ...result, content: sanitized.text } : result;
 	});
