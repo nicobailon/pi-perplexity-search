@@ -116,6 +116,26 @@ test("Firecrawl search accepts v1 flat result arrays", async () => {
 	assert.deepEqual(output.result.inlineContent, [{ url: "https://example.com/v1", title: "V1 result", content: "# V1", error: null }]);
 });
 
+test("Firecrawl API base allows configured loopback without global SSRF allow ranges", async () => {
+	for (const firecrawlBaseUrl of ["http://localhost:3002", "http://127.0.0.1:3002"]) {
+		const home = await configHome({ firecrawlBaseUrl });
+		const child = runChild(`
+			let calls = [];
+			globalThis.fetch = async (url) => {
+				calls.push(String(url));
+				return new Response(JSON.stringify({ success: true, data: { web: [{ title: "Local", url: "https://example.com/local", description: "local" }] } }), { status: 200 });
+			};
+			const { search } = await import(${JSON.stringify(searchModuleUrl)});
+			const result = await search("local firecrawl", { provider: "firecrawl" });
+			console.log(JSON.stringify({ calls, result }));
+		`, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: home });
+		assert.equal(child.status, 0, child.stderr);
+		const output = JSON.parse(child.stdout.trim());
+		assert.deepEqual(output.calls, [`${firecrawlBaseUrl}/v2/search`]);
+		assert.deepEqual(output.result.results, [{ title: "Local", url: "https://example.com/local", snippet: "local" }]);
+	}
+});
+
 test("Firecrawl search honors configured SSRF allow ranges", async () => {
 	const home = await configHome({
 		firecrawlBaseUrl: "http://127.0.0.1:3002",

@@ -50,6 +50,16 @@ test("validateRemoteUrl blocks hostnames that resolve to private addresses", asy
 	);
 });
 
+test("loopback opt-in does not allow arbitrary hostnames that resolve to loopback", async () => {
+	await assert.rejects(
+		validateRemoteUrl("https://example.test/", {
+			allowLoopback: true,
+			lookup: async () => [{ address: "127.0.0.1", family: 4 }],
+		}),
+		/Blocked internal address for example\.test: 127\.0\.0\.1/,
+	);
+});
+
 test("validateRemoteUrl permits public HTTP and HTTPS targets", async () => {
 	assert.equal((await validateRemoteUrl("https://example.com/path", { lookup: publicLookup })).hostname, "example.com");
 	assert.equal((await validateRemoteUrl("http://93.184.216.34/")).hostname, "93.184.216.34");

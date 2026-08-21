@@ -5,6 +5,7 @@ import { getWebSearchConfigPath } from "./utils.ts";
 
 const DEFAULT_MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const LOOPBACK_ALLOW_RANGES = ["127.0.0.0/8", "::1", "::ffff:127.0.0.0/104"];
 
 export type LookupAddress = { address: string; family: number };
 export type Lookup = (hostname: string) => Promise<LookupAddress[]>;
@@ -152,6 +153,8 @@ interface ValidationOptions {
 	 * the local SSRF preflight. This does not configure proxy transport.
 	 */
 	trustEnvProxy?: boolean;
+	/** Allow loopback URLs for explicit provider base endpoints, not fetched targets. */
+	allowLoopback?: boolean;
 }
 
 /** Parsed entry from `allowRanges`: a network address (4 or 16 bytes) + prefix length. */
@@ -185,7 +188,11 @@ export async function validateRemoteUrl(rawUrl: string | URL, options: Validatio
 
 	const hostname = normalizeHostname(url.hostname);
 	if (!hostname) throw new Error("URL must include a hostname");
-	if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+	if (hostname === "localhost") {
+		if (options.allowLoopback === true) return url;
+		throw new Error(`Blocked internal hostname: ${hostname}`);
+	}
+	if (hostname.endsWith(".localhost")) {
 		throw new Error(`Blocked internal hostname: ${hostname}`);
 	}
 
@@ -193,7 +200,10 @@ export async function validateRemoteUrl(rawUrl: string | URL, options: Validatio
 	assertDomainPolicy(hostname, options.domainPolicy);
 
 	if (net.isIP(hostname)) {
-		assertPublicAddress(hostname, hostname, allowRanges);
+		const addressAllowRanges = options.allowLoopback === true
+			? [...allowRanges, ...parseAllowRanges(LOOPBACK_ALLOW_RANGES)]
+			: allowRanges;
+		assertPublicAddress(hostname, hostname, addressAllowRanges);
 		return url;
 	}
 

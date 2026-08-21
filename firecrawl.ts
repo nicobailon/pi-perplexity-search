@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import net from "node:net";
 import { activityMonitor } from "./activity.ts";
 import { redactCredential, resolveCredential } from "./credential-source.ts";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
@@ -184,6 +185,20 @@ function ssrfOptions(options?: FirecrawlExtractOptions | FirecrawlSearchOptions)
 	};
 }
 
+function isLoopbackApiUrl(url: URL): boolean {
+	const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+	if (hostname === "localhost" || hostname === "::1") return true;
+	if (net.isIP(hostname) !== 4) return false;
+	return hostname.split(".")[0] === "127";
+}
+
+function firecrawlApiSsrfOptions(
+	options: FirecrawlExtractOptions | FirecrawlSearchOptions | undefined,
+	allowLoopback: boolean,
+): ReturnType<typeof ssrfOptions> & { allowLoopback: boolean } {
+	return { ...ssrfOptions(options), allowLoopback };
+}
+
 function withoutSensitiveHeaders(headers: Record<string, string>): Record<string, string> {
 	const next = { ...headers };
 	delete next.Authorization;
@@ -200,7 +215,8 @@ async function fetchFirecrawlApi(
 	init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
 	options: FirecrawlExtractOptions | FirecrawlSearchOptions | undefined,
 ): Promise<Response> {
-	let current = await validateRemoteUrl(url, ssrfOptions(options));
+	const allowLoopback = isLoopbackApiUrl(new URL(url));
+	let current = await validateRemoteUrl(url, firecrawlApiSsrfOptions(options, allowLoopback));
 	let headers = init.headers;
 	for (let redirects = 0; redirects <= DEFAULT_MAX_REDIRECTS; redirects++) {
 		const response = await fetch(current, { ...init, headers, redirect: "manual" });
@@ -210,7 +226,7 @@ async function fetchFirecrawlApi(
 		if (!location) return response;
 		if (redirects === DEFAULT_MAX_REDIRECTS) throw new Error(`Too many redirects fetching ${current.toString()}`);
 
-		const next = await validateRemoteUrl(new URL(location, current), ssrfOptions(options));
+		const next = await validateRemoteUrl(new URL(location, current), firecrawlApiSsrfOptions(options, allowLoopback));
 		if (next.origin !== current.origin) headers = withoutSensitiveHeaders(headers);
 		current = next;
 	}
