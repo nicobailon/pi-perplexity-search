@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 
-import { extractContent } from "../extract.ts";
+import { extractContent, fetchAllContent } from "../extract.ts";
 
 const originalFetch = globalThis.fetch;
 after(() => { globalThis.fetch = originalFetch; });
@@ -21,6 +21,14 @@ test("raw mode returns textual non-2xx bodies but rejects images", async () => {
 	const image = await extractContent("https://example.com/pixel.png", undefined, { mode: "raw", lookup });
 	assert.match(image.error, /Unsupported content type in raw mode: image\/png/);
 	assert.equal(image.thumbnail, undefined);
+});
+
+test("raw mode keeps data URIs in the exact HTTP body", async () => {
+	const body = "exact data:text/plain,hello%20world body";
+	globalThis.fetch = async () => new Response(body, { headers: { "content-type": "text/plain" } });
+
+	const [result] = await fetchAllContent(["https://example.com/data"], undefined, { mode: "raw", lookup });
+	assert.equal(result.content, body);
 });
 
 test("readable mode returns supported image content", async () => {

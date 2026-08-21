@@ -1252,6 +1252,7 @@ export async function fetchAllContent(
 	options?: ExtractOptions,
 ): Promise<ExtractedContent[]> {
 	const results = await Promise.all(urls.map((url) => fetchLimit(() => extractContent(url, signal, options))));
+	if (options?.mode === "raw") return results;
 	// Inline data: URIs in extracted markdown would otherwise flow into tool
 	// results and the fetch cache as opaque base64; typed thumbnail/frame image
 	// blocks are deliberate outputs and are left untouched.
