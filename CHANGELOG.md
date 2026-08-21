@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Added Windows Chrome and Edge browser-cookie support for Gemini Web. Thanks to [@laixuanthoi](https://github.com/laixuanthoi) for issue #286.
 
 ### Fixed
+- Updated the local `fetch_content` HTTP User-Agent for wider compatible content retrieval.
 - Replaced inline RFC 2397 `data:` URIs in extracted page content with explicit bounded omission markers (MIME type, encoding, encoded/decoded byte counts, SHA-256 digest, `retrieval=not-retained`) before content reaches tool results, the fetch cache, or session persistence. Readable prose and Markdown image alt text are preserved; typed thumbnail/frame image blocks are unaffected. Thanks to [@bbbRye007](https://github.com/bbbRye007) for #281 and #282.
 - Detached Linux curator browser launches so `xdg-open` cannot block `web_search` until the browser exits. Thanks to [@nguyenphivn](https://github.com/nguyenphivn) for issue #279.
 - Allowed configured Firecrawl API base URLs to use loopback addresses without opening loopback for submitted fetch targets. Thanks to [@ackalker](https://github.com/ackalker) for issue #280.

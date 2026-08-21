@@ -8,6 +8,17 @@ after(() => { globalThis.fetch = originalFetch; });
 const lookup = async () => [{ address: "93.184.216.34", family: 4 }];
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
+test("local HTTP fetch sends the compatible User-Agent", async () => {
+	let userAgent;
+	globalThis.fetch = async (_url, init) => {
+		userAgent = new Headers(init.headers).get("user-agent");
+		return new Response("body", { headers: { "content-type": "text/plain" } });
+	};
+
+	await extractContent("https://example.com/article", undefined, { mode: "raw", lookup });
+	assert.equal(userAgent, "OpenAI File Downloader, XaiImageApiFetch/1.0");
+});
+
 test("raw mode returns textual non-2xx bodies but rejects images", async () => {
 	globalThis.fetch = async (url) => String(url).endsWith(".png")
 		? new Response(png, { status: 200, headers: { "content-type": "image/png" } })
