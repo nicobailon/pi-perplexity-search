@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added `pdf.maxPages` to limit Datalab, Gemini, and local PDF extraction to the first N pages. Thanks to [@jaudiger](https://github.com/jaudiger) for issue #277.
+
 ## [0.24.0] - 2026-08-18
 
 ### Highlights

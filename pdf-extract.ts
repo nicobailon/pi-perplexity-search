@@ -51,6 +51,7 @@ export const PDF_PROVIDER_VALUES = new Set<PDFProvider>([
 export interface PDFConfig {
 	enabled: boolean;
 	maxSizeMB: number;
+	maxPages: number;
 	provider: PDFProvider;
 	datalabMode: DatalabMode;
 	datalabTimeoutMs: number;
@@ -69,6 +70,7 @@ export function loadPDFConfig(): PDFConfig {
 		return {
 			enabled: true,
 			maxSizeMB: DEFAULT_PDF_MAX_SIZE_MB,
+			maxPages: DEFAULT_MAX_PAGES,
 			provider: "auto",
 			datalabMode: normalizeDatalabMode(process.env.DATALAB_MODE),
 			datalabTimeoutMs: DEFAULT_DATALAB_TIMEOUT_MS,
@@ -98,6 +100,13 @@ export function loadPDFConfig(): PDFConfig {
 		configured > 0
 			? Math.min(configured, MAX_PDF_MAX_SIZE_MB)
 			: DEFAULT_PDF_MAX_SIZE_MB;
+	const configuredMaxPages = pdf.maxPages;
+	const maxPages =
+		typeof configuredMaxPages === "number" &&
+		Number.isFinite(configuredMaxPages) &&
+		configuredMaxPages > 0
+			? Math.max(1, Math.floor(configuredMaxPages))
+			: DEFAULT_MAX_PAGES;
 
 	const provider =
 		typeof pdf.provider === "string" &&
@@ -120,6 +129,7 @@ export function loadPDFConfig(): PDFConfig {
 	return {
 		enabled,
 		maxSizeMB: normalized,
+		maxPages,
 		provider,
 		datalabMode,
 		datalabTimeoutMs,
@@ -155,18 +165,21 @@ export async function extractPDFToMarkdown(
 	options: PDFExtractOptions = {},
 ): Promise<PDFExtractResult> {
 	const {
-		maxPages = DEFAULT_MAX_PAGES,
+		maxPages,
 		outputDir = DEFAULT_OUTPUT_DIR,
 		filename,
 		signal,
 		geminiTimeoutMs,
 	} = options;
 
-	const safeMaxPages = Number.isFinite(maxPages)
-		? Math.max(1, Math.floor(maxPages))
-		: DEFAULT_MAX_PAGES;
-	const urlTitle = extractTitleFromURL(url);
 	const pdfConfig = loadPDFConfig();
+	const safeMaxPages =
+		maxPages === undefined
+			? pdfConfig.maxPages
+			: Number.isFinite(maxPages)
+				? Math.max(1, Math.floor(maxPages))
+				: DEFAULT_MAX_PAGES;
+	const urlTitle = extractTitleFromURL(url);
 	const provider = pdfConfig.provider;
 
 	if (provider === "auto" || provider === "datalab") {

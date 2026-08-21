@@ -31,6 +31,15 @@ test("pdf.maxSizeMB caps values above 50 and rejects invalid values", () => {
 	assert.equal(readConfig({ pdf: { maxSizeMB: "50" } }).maxSizeMB, 20);
 });
 
+test("pdf.maxPages defaults to 100 and accepts positive integer values", () => {
+	assert.equal(readConfig(undefined).maxPages, 100);
+	assert.equal(readConfig({ pdf: { maxPages: 25 } }).maxPages, 25);
+	assert.equal(readConfig({ pdf: { maxPages: 2.8 } }).maxPages, 2);
+	assert.equal(readConfig({ pdf: { maxPages: 0 } }).maxPages, 100);
+	assert.equal(readConfig({ pdf: { maxPages: -1 } }).maxPages, 100);
+	assert.equal(readConfig({ pdf: { maxPages: "25" } }).maxPages, 100);
+});
+
 test("pdf.provider defaults to auto and validates explicit providers", () => {
 	assert.equal(readConfig(undefined).provider, "auto");
 	assert.equal(readConfig({ pdf: { provider: "gemini" } }).provider, "gemini");
