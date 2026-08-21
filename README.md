@@ -816,7 +816,7 @@ Rate limits: Perplexity is capped at 10 requests/minute (client-side). Jina Sear
 ## Limitations
 
 - If the curator cannot open a browser automatically, such as in Docker, WSL, SSH, or headless environments, the running curator URL is shown in the tool output. Copy it into a browser that can reach the Pi host, or use a tunnel/port-forward when needed.
-- Chromium cookie extraction for Gemini Web is opt-in via `allowBrowserCookies: true` or `PI_ALLOW_BROWSER_COOKIES=1`; no browser data or password store is touched while it is disabled. On macOS, enabling it may trigger a Keychain dialog. Required cookie names are checked before password-store access, and browser encryption passwords are cached only in-process. If `node:sqlite` is unavailable, the reader falls back to the `sqlite3` CLI or Python stdlib; `/google-account` reports a sanitized SQLite/profile/password diagnostic when extraction fails.
+- Chromium cookie extraction for Gemini Web is opt-in via `allowBrowserCookies: true` or `PI_ALLOW_BROWSER_COOKIES=1`; no browser data or password store is touched while it is disabled. On macOS, enabling it may trigger a Keychain dialog. On Windows, Chrome and Edge v10 cookies use the current user's DPAPI key; v20 app-bound cookies are not supported. Required cookie names are checked before password-store access, and browser encryption passwords are cached only in-process. If `node:sqlite` is unavailable, the reader falls back to the `sqlite3` CLI or Python stdlib; `/google-account` reports a sanitized SQLite/profile/password diagnostic when extraction fails.
 - YouTube private/age-restricted videos may fail on all extraction paths.
 - Gemini can process videos up to ~1 hour; longer videos may be truncated.
 - PDFs are text-extracted only (no OCR for scanned documents).
@@ -863,7 +863,7 @@ Rate limits: Perplexity is capped at 10 requests/minute (client-side). Jina Sear
 | `gemini-web.ts` | Gemini Web client (cookie auth, StreamGenerate) |
 | `gemini-web-config.ts` | Gemini Web profile and browser-cookie opt-in config |
 | `gemini-api.ts` | Gemini REST API client (generateContent) |
-| `chrome-cookies.ts` | macOS/Linux Chromium-based cookie extraction (Keychain/secret-tool + SQLite) |
+| `chrome-cookies.ts` | Chromium-based cookie extraction (macOS Keychain, Linux secret-tool, Windows DPAPI + SQLite) |
 | `youtube-extract.ts` | YouTube detection, three-tier extraction, frame extraction |
 | `video-extract.ts` | Local video detection, Files API upload, Gemini analysis |
 | `github-extract.ts` | GitHub URL parsing, clone cache, content generation |

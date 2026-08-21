@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createCipheriv, createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 const moduleUrl = new URL("../chrome-cookies.ts", import.meta.url).href;
@@ -15,9 +16,13 @@ function createFixture(home, profile, rows = [], options = {}) {
 		? browser === "Brave"
 			? join(home, "Library", "Application Support", "BraveSoftware", "Brave-Browser")
 			: join(home, "Library", "Application Support", "Google", "Chrome")
+		: targetPlatform === "win32"
+			? browser === "Edge"
+				? join(home, "AppData", "Local", "Microsoft", "Edge", "User Data")
+				: join(home, "AppData", "Local", "Google", "Chrome", "User Data")
 		: join(home, ".config", "google-chrome");
-	const dbPath = join(base, profile, "Cookies");
-	mkdirSync(join(base, profile), { recursive: true });
+	const dbPath = targetPlatform === "win32" ? join(base, profile, "Network", "Cookies") : join(base, profile, "Cookies");
+	mkdirSync(dirname(dbPath), { recursive: true });
 	execFileSync(python, ["-c", `
 import json, sqlite3, sys
 c = sqlite3.connect(sys.argv[1])
@@ -25,10 +30,27 @@ c.execute("create table meta (key text, value integer)")
 c.execute("insert into meta values ('version', 24)")
 c.execute("create table cookies (name text, value text, host_key text, encrypted_value blob, expires_utc integer)")
 for row in json.loads(sys.argv[2]):
-    c.execute("insert into cookies values (?, ?, ?, ?, ?)", row)
+    encrypted = bytes.fromhex(row[3][4:]) if isinstance(row[3], str) and row[3].startswith('hex:') else row[3]
+    c.execute("insert into cookies values (?, ?, ?, ?, ?)", [row[0], row[1], row[2], encrypted, row[4]])
 c.commit()
 c.close()
 `, dbPath, JSON.stringify(rows)], { stdio: "ignore" });
+	if (options.windowsKey) {
+		writeFileSync(join(base, "Local State"), JSON.stringify({ os_crypt: { encrypted_key: Buffer.concat([Buffer.from("DPAPI"), Buffer.from("protected")]).toString("base64") } }));
+	}
+}
+
+function encryptWindowsCookie(value, key, version = "v10", hostKey) {
+	const nonce = Buffer.alloc(12, 7);
+	const cipher = createCipheriv("aes-256-gcm", key, nonce);
+	const plaintext = hostKey ? Buffer.concat([createHash("sha256").update(hostKey).digest(), Buffer.from(value)]) : Buffer.from(value);
+	return Buffer.concat([Buffer.from(version), nonce, cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]).toString("hex");
+}
+
+function writeWindowsDpapiCommand(bin) {
+	const script = "#!/bin/sh\nlast=\nfor arg do last=$arg; done\n[ \"$last\" = \"$DPAPI_PROTECTED\" ] || exit 1\nprintf '%s' \"$DPAPI_KEY\"\n";
+	writeFileSync(join(bin, "powershell.exe"), script);
+	chmodSync(join(bin, "powershell.exe"), 0o755);
 }
 
 function makeEnvironment(home, bin, extra = {}) {
@@ -124,6 +146,42 @@ test("auto-discovery finds a Brave profile on macOS", (t) => {
 	assert.deepEqual(readFileSync(argsPath, "utf8").trim().split("\n"), [
 		"find-generic-password", "-w", "-a", "Brave", "-s", "Brave Safe Storage",
 	]);
+	rmSync(home, { recursive: true, force: true });
+	rmSync(bin, { recursive: true, force: true });
+});
+
+test("Windows Chrome profiles decrypt v10 cookies with DPAPI keys", (t) => {
+	skipWithoutPython(t);
+	const home = mkdtempSync(join(tmpdir(), "pi-cookie-windows-"));
+	const bin = mkdtempSync(join(tmpdir(), "pi-cookie-bin-"));
+	const key = Buffer.alloc(32, 3);
+	createFixture(home, "Default", [
+		["__Secure-1PSID", "", ".google.com", `hex:${encryptWindowsCookie("one", key, "v10", ".google.com")}`, 1],
+		["__Secure-1PSIDTS", "", ".google.com", `hex:${encryptWindowsCookie("two", key, "v10", ".google.com")}`, 2],
+	], { targetPlatform: "win32", windowsKey: key });
+	const env = makeEnvironment(home, bin, { LOCALAPPDATA: join(home, "AppData", "Local"), DPAPI_KEY: key.toString("base64"), DPAPI_PROTECTED: Buffer.from("protected").toString("base64"), TEMP: tmpdir(), TMP: tmpdir() });
+	writeWindowsDpapiCommand(bin);
+	const result = runCookies(home, env, undefined, "win32");
+	assert.deepEqual(result.result.cookies, { "__Secure-1PSIDTS": "two", "__Secure-1PSID": "one" });
+	rmSync(home, { recursive: true, force: true });
+	rmSync(bin, { recursive: true, force: true });
+});
+
+test("Windows Edge uses the USERPROFILE AppData fallback and reports unsupported v20 cookies", (t) => {
+	skipWithoutPython(t);
+	const home = mkdtempSync(join(tmpdir(), "pi-cookie-windows-edge-"));
+	const bin = mkdtempSync(join(tmpdir(), "pi-cookie-bin-"));
+	const key = Buffer.alloc(32, 4);
+	createFixture(home, "Default", [
+		["__Secure-1PSID", "", ".google.com", `hex:${encryptWindowsCookie("one", key, "v20")}`, 1],
+		["__Secure-1PSIDTS", "", ".google.com", `hex:${encryptWindowsCookie("two", key, "v20")}`, 2],
+	], { browser: "Edge", targetPlatform: "win32", windowsKey: key });
+	const env = makeEnvironment(home, bin, { DPAPI_KEY: key.toString("base64"), DPAPI_PROTECTED: Buffer.from("protected").toString("base64"), TEMP: tmpdir(), TMP: tmpdir() });
+	delete env.LOCALAPPDATA;
+	writeWindowsDpapiCommand(bin);
+	const result = runCookies(home, env, undefined, "win32");
+	assert.equal(result.result, null);
+	assert.match(result.diagnostic, /v20 app-bound cookies are not supported/);
 	rmSync(home, { recursive: true, force: true });
 	rmSync(bin, { recursive: true, force: true });
 });
