@@ -53,6 +53,14 @@ test("remote curator mode prints the manual URL unless auto-open is explicit", (
 	assert.ok(indexSrc.includes('ctx.ui.notify(`Search curator is running. Open manually: ${handle.url}`, "info")'));
 });
 
+test("Linux curator browser launch detaches xdg-open but keeps immediate failures", () => {
+	assert.match(indexSrc, /spawn\("xdg-open", \[url\], \{ detached: true, stdio: "ignore" \}\)/);
+	assert.match(indexSrc, /child\.once\("error", \(err\) => \{/);
+	assert.match(indexSrc, /child\.once\("exit", \(code\) => \{/);
+	assert.match(indexSrc, /setTimeout\(resolve, 100\)/);
+	assert.match(indexSrc, /child\.unref\(\);/);
+});
+
 test("README documents manual browser fallback", () => {
 	assert.match(readmeSrc, /Docker, WSL, SSH, or headless environments/);
 	assert.match(readmeSrc, /Copy it into a browser that can reach the Pi host/);

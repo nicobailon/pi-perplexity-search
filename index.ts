@@ -34,7 +34,7 @@ import {
 	type SummaryMeta,
 } from "./summary-review.ts";
 import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { platform } from "node:os";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -744,11 +744,26 @@ function closeCurator(callId?: string): void {
 
 async function openInBrowser(pi: ExtensionAPI, url: string): Promise<void> {
 	const plat = platform();
+	if (plat !== "darwin" && plat !== "win32") {
+		await new Promise<void>((resolve, reject) => {
+			const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
+			const timer = setTimeout(resolve, 100);
+			child.once("error", (err) => {
+				clearTimeout(timer);
+				reject(err);
+			});
+			child.once("exit", (code) => {
+				clearTimeout(timer);
+				if (code === 0) resolve();
+				else reject(new Error(`Failed to open browser (exit code ${code ?? "unknown"})`));
+			});
+			child.unref();
+		});
+		return;
+	}
 	const result = plat === "darwin"
 		? await pi.exec("open", [url])
-		: plat === "win32"
-			? await pi.exec("cmd", ["/c", "start", "", url])
-			: await pi.exec("xdg-open", [url]);
+		: await pi.exec("cmd", ["/c", "start", "", url]);
 	if (result.code !== 0) {
 		throw new Error(result.stderr || `Failed to open browser (exit code ${result.code})`);
 	}
