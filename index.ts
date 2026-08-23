@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { StringEnum, type ImageContent, type TextContent } from "@earendil-works/pi-ai/compat";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
+import { normalizeGetSearchContentParams } from "./get-search-content-params.ts";
 import { resolveAuthFetchProfile, type AuthFetchProfile } from "./auth-fetch.ts";
 import { findContent, type FindMode } from "./content-find.ts";
 import { answerFromPage } from "./page-query.ts";
@@ -2689,24 +2690,17 @@ export default function (pi: ExtensionAPI) {
 			queryIndex: Type.Optional(Type.Integer({ minimum: 0, description: "Get content for query at index" })),
 			url: Type.Optional(Type.String({ description: "Get content for this URL" })),
 			urlIndex: Type.Optional(Type.Integer({ minimum: 0, description: "Get content for URL at index" })),
-			offset: Type.Optional(Type.Integer({ minimum: 0, description: "Character offset for fetched URL content slices (default 0). Cannot be combined with findText." })),
-			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: maxInlineContentChars, description: "Maximum characters to return for fetched URL content slices (default and max are set by maxInlineContentChars). Cannot be combined with findText." })),
+			offset: Type.Optional(Type.Integer({ minimum: 0, description: "Character offset for fetched URL content slices (default 0). Ignored when findText is supplied." })),
+			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: maxInlineContentChars, description: "Maximum characters to return for fetched URL content slices (default and max are set by maxInlineContentChars). Ignored when findText is supplied." })),
 			findText: Type.Optional(Type.Union([
 				Type.String({ minLength: 1, maxLength: 500 }),
 				Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { minItems: 1, maxItems: 10 }),
-			], { description: "Text or texts to find in the selected stored content. Cannot be combined with offset or limit." })),
+			], { description: "Text or texts to find in the selected stored content. When supplied, offset and limit are ignored." })),
 			findMode: Type.Optional(StringEnum(["exact", "case-insensitive", "fuzzy"], { description: "Matching mode for findText (default: case-insensitive). Requires findText." })),
 		}),
 
 		async execute(_toolCallId, params): Promise<AgentToolResult<Record<string, unknown>>> {
-			if (params.findText !== undefined && (params.offset !== undefined || params.limit !== undefined)) {
-				const offset = formatInputValue(params.offset);
-				const limit = formatInputValue(params.limit);
-				return {
-					content: [{ type: "text", text: `findText cannot be combined with offset or limit. Received offset=${offset}, limit=${limit}; omit offset and limit when using findText.` }],
-					details: { error: "Incompatible find options" },
-				};
-			}
+			params = normalizeGetSearchContentParams(params);
 			if (params.findMode !== undefined && params.findText === undefined) {
 				return {
 					content: [{ type: "text", text: `findMode ${formatInputValue(params.findMode)} requires findText; provide findText or omit findMode.` }],
