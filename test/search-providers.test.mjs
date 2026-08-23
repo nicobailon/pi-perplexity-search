@@ -891,7 +891,10 @@ test("OpenAI search uses configured Responses endpoint", async () => {
 			capturedUrl = String(url);
 			capturedAuthorization = init.headers.Authorization;
 			return new Response(JSON.stringify({
-				output: [{ type: "message", content: [{ type: "output_text", text: "gateway answer" }] }],
+				output: [
+					{ type: "web_search_call", action: { sources: [] } },
+					{ type: "message", content: [{ type: "output_text", text: "gateway answer" }] },
+				],
 			}), { status: 200, headers: { "content-type": "application/json" } });
 		};
 
@@ -958,7 +961,10 @@ test("auto search prefers Codex-backed OpenAI search when the selected model is 
 				throw new Error("Expected Codex search first, got " + capturedUrl);
 			}
 			return new Response(JSON.stringify({
-				output: [{ type: "message", content: [{ type: "output_text", text: "codex search answer" }] }],
+				output: [
+					{ type: "web_search_call", action: { sources: [] } },
+					{ type: "message", content: [{ type: "output_text", text: "codex search answer" }] },
+				],
 			}), { status: 200, headers: { "content-type": "application/json" } });
 		};
 
@@ -1032,7 +1038,10 @@ test("OpenAI search falls back to API key when model registry cannot enumerate",
 		globalThis.fetch = async (url, init) => {
 			capturedBody = JSON.parse(init.body);
 			return new Response(JSON.stringify({
-				output: [{ type: "message", content: [{ type: "output_text", text: "fallback answer" }] }],
+				output: [
+					{ type: "web_search_call", action: { sources: [] } },
+					{ type: "message", content: [{ type: "output_text", text: "fallback answer" }] },
+				],
 			}), { status: 200, headers: { "content-type": "application/json" } });
 		};
 
@@ -1062,7 +1071,10 @@ test("OpenAI search uses configured model with selected registry auth", async ()
 		globalThis.fetch = async (url, init) => {
 			capturedBody = JSON.parse(init.body);
 			return new Response(JSON.stringify({
-				output: [{ type: "message", content: [{ type: "output_text", text: "registry answer" }] }],
+				output: [
+					{ type: "web_search_call", action: { sources: [] } },
+					{ type: "message", content: [{ type: "output_text", text: "registry answer" }] },
+				],
 			}), { status: 200, headers: { "content-type": "application/json" } });
 		};
 
@@ -1107,7 +1119,10 @@ test("OpenAI search honors configured provider priority", async () => {
 		globalThis.fetch = async (url, init) => {
 			capturedAuthorization = init.headers.Authorization;
 			return new Response(JSON.stringify({
-				output: [{ type: "message", content: [{ type: "output_text", text: "second account answer" }] }],
+				output: [
+					{ type: "web_search_call", action: { sources: [] } },
+					{ type: "message", content: [{ type: "output_text", text: "second account answer" }] },
+				],
 			}), { status: 200, headers: { "content-type": "application/json" } });
 		};
 

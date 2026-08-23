@@ -45,7 +45,7 @@ import { isGeminiApiAvailable } from "./gemini-api.ts";
 import { getActiveGoogleEmail, getGeminiWebAvailabilityDiagnostic, isGeminiWebAvailable } from "./gemini-web.ts";
 import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
 import { isBraveAvailable } from "./brave.ts";
-import { isOpenAISearchAvailable } from "./openai-search.ts";
+import { isCurrentModelHostedSearchEligible, isOpenAISearchAvailable } from "./openai-search.ts";
 import { isParallelAvailable } from "./parallel.ts";
 import { isParallelMcpAvailable } from "./parallel-mcp.ts";
 import { isTinyFishAvailable } from "./tinyfish.ts";
@@ -453,7 +453,7 @@ export function resolveCuratorDefaultProvider(
 	ctx?: Pick<ExtensionContext, "model">,
 	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
 ): CuratorProvider {
-	return resolveProvider(provider, available, options, shouldUseOpenAICodexDefault(ctx));
+	return resolveProvider(provider, available, options, shouldUseOpenAICodexDefault(ctx), ctx);
 }
 
 function firstAvailableProvider(available: ProviderAvailability, preferOpenAI: boolean, fallback: ResolvedSearchProvider): ResolvedSearchProvider {
@@ -484,6 +484,7 @@ function resolveProvider(
 	available: ProviderAvailability,
 	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
 	preferOpenAICodexDefault = false,
+	ctx?: Pick<ExtensionContext, "model">,
 ): CuratorProvider {
 	if (Array.isArray(provider)) return "all";
 	const preferOpenAI = shouldPreferOpenAI(options, preferOpenAICodexDefault);
@@ -492,9 +493,10 @@ function resolveProvider(
 		const routing = getConfiguredSearchRouting();
 		if (routing) {
 			for (const candidate of routing.providers) {
+				if (candidate === "openai" && routing.useCurrentModel === true && !isCurrentModelHostedSearchEligible(ctx)) continue;
 				if (available[candidate]) return candidate;
 			}
-			return routing.providers[0];
+			return routing.providers.find(candidate => candidate !== "openai" || routing.useCurrentModel !== true || isCurrentModelHostedSearchEligible(ctx)) ?? routing.providers[0];
 		}
 		return firstAvailableProvider(available, preferOpenAI, "exa");
 	}

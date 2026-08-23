@@ -50,6 +50,20 @@ In `auto` mode (default), `web_search` tries a configured SearXNG endpoint first
 
 If your OpenAI key belongs to a third-party Responses-compatible gateway, set `openaiResponsesUrl` to that gateway's full Responses endpoint. The default remains `https://api.openai.com/v1/responses`.
 
+To route automatic searches through the active Pi model, configure an ordered route without a top-level `provider`:
+
+```json
+{
+  "searchRouting": {
+    "providers": ["openai", "tavily"],
+    "useCurrentModel": true,
+    "fallbackOn": ["unsupported", "transient", "quota", "network", "invalid-response"]
+  }
+}
+```
+
+With `useCurrentModel: true`, the automatic `openai` step uses Hosted `web_search` only when the active model is a GPT model from provider `openai`, uses `openai-responses`, and points at HTTPS `api.openai.com`. Third-party gateways, Azure, Codex Responses, and other models continue to the next route entry. A tool-level `provider` or top-level `provider` remains an explicit override; `provider: "openai"` keeps the existing independent OpenAI/Codex search-model behavior.
+
 For sandboxed networks that provide outbound proxy transport through environment variables, set `ssrf.trustEnvProxy` to `true` to skip local DNS preflight for proxied hostnames:
 
 ```json
@@ -257,7 +271,7 @@ When Readability fails or returns only a cookie notice, the extension can retry 
 
 ```
 web_search(query)
-  → SearXNG (if configured) → OpenAI (when suitable) → Exa → Brave → Parallel → TinyFish → Search1API → Searchinfinity → Querit → Tavily → Firecrawl → Jina → SERPdive → Perplexity → Gemini
+  → configured searchRouting (optionally active-model-aware OpenAI Hosted Search) → automatic provider chain
 
 fetch_content(url)
   → Video file?  Gemini API (Files API) → Gemini Web (if browser cookies enabled)
@@ -355,9 +369,9 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
   "geminiApiKey": "AIza...",
   "geminiBaseUrl": "https://my-gateway.example.com/gemini",
   "cloudflareApiKey": "...",
-  "provider": "openai",
   "searchRouting": {
     "providers": ["openai", "brave", "exa"],
+    "useCurrentModel": false,
     "fallbackOn": ["transient", "quota", "network", "invalid-response"]
   },
   "fetchRouting": {

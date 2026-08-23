@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added opt-in `searchRouting.useCurrentModel` routing for automatic searches. Official OpenAI GPT Responses models can now fund an isolated Hosted `web_search` request using their exact model, endpoint, credentials, and headers before configured fallbacks.
+- Added strict Hosted Search response validation: responses must contain a real `web_search_call`; explicit unsupported-tool errors are classified separately for configured fallback routes.
+
 ## [0.24.2] - 2026-08-22
 
 ### Highlights

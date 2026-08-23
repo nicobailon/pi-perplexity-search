@@ -7,7 +7,12 @@ import { getGeminiWebAvailabilityDiagnostic, isGeminiWebAvailable, queryWithCook
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.ts";
 import { isExaAvailable, searchWithExa } from "./exa.ts";
 import { isBraveAvailable, searchWithBrave } from "./brave.ts";
-import { isOpenAISearchAvailable, searchWithOpenAI } from "./openai-search.ts";
+import {
+	isCurrentModelHostedSearchEligible,
+	isOpenAISearchAvailable,
+	searchWithCurrentModelOpenAI,
+	searchWithOpenAI,
+} from "./openai-search.ts";
 import { isParallelAvailable, searchWithParallel } from "./parallel.ts";
 import { isParallelMcpAvailable, searchWithParallelMcp } from "./parallel-mcp.ts";
 import { isTinyFishAvailable, searchWithTinyFish } from "./tinyfish.ts";
@@ -46,12 +51,14 @@ export type SearchProviderErrorKind =
 	| "auth"
 	| "invalid-request"
 	| "invalid-response"
+	| "unsupported"
 	| "aborted"
 	| "unknown";
 
 export interface SearchRoutingConfig {
 	providers: ResolvedSearchProvider[];
-	fallbackOn: Array<Extract<SearchProviderErrorKind, "transient" | "quota" | "network" | "invalid-response">>;
+	useCurrentModel?: boolean;
+	fallbackOn: Array<Extract<SearchProviderErrorKind, "transient" | "quota" | "network" | "invalid-response" | "unsupported">>;
 }
 
 export class SearchProviderError extends Error {
@@ -96,7 +103,7 @@ const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
 // Explicit-only providers (Parallel MCP, DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, Valyu) are deliberately absent:
 // `all` must never fan out to an opt-in or paid provider without the user asking for it.
 const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "ollama", "perplexity", "gemini", "bocha"];
-const VALID_ROUTING_KINDS = ["transient", "quota", "network", "invalid-response"] as const;
+const VALID_ROUTING_KINDS = ["transient", "quota", "network", "invalid-response", "unsupported"] as const;
 
 type SearchConfig = {
 	searchProvider: SearchProviderSelection;
@@ -144,19 +151,27 @@ function normalizeSearchRouting(value: unknown): SearchRoutingConfig {
 	}
 	const raw = value as Record<string, unknown>;
 	const providers = normalizeResolvedProviderList(raw.providers, `searchRouting.providers in ${CONFIG_PATH}`);
+	const useCurrentModel = raw.useCurrentModel;
+	if (useCurrentModel !== undefined && typeof useCurrentModel !== "boolean") {
+		throw new Error(`searchRouting.useCurrentModel in ${CONFIG_PATH} must be a boolean`);
+	}
 	if (!Array.isArray(raw.fallbackOn) || raw.fallbackOn.length === 0) {
 		throw new Error(`searchRouting.fallbackOn in ${CONFIG_PATH} must be a non-empty array`);
 	}
 	const fallbackOn: SearchRoutingConfig["fallbackOn"] = [];
 	for (const kind of raw.fallbackOn) {
 		if (typeof kind !== "string" || !VALID_ROUTING_KINDS.includes(kind as typeof VALID_ROUTING_KINDS[number])) {
-			throw new Error(`searchRouting.fallbackOn in ${CONFIG_PATH} may only contain transient, quota, network, or invalid-response`);
+			throw new Error(`searchRouting.fallbackOn in ${CONFIG_PATH} may only contain transient, quota, network, invalid-response, or unsupported`);
 		}
 		if (!fallbackOn.includes(kind as SearchRoutingConfig["fallbackOn"][number])) {
 			fallbackOn.push(kind as SearchRoutingConfig["fallbackOn"][number]);
 		}
 	}
-	return { providers, fallbackOn };
+	return {
+		providers,
+		...(useCurrentModel !== undefined ? { useCurrentModel: useCurrentModel as boolean } : {}),
+		fallbackOn,
+	};
 }
 
 export function getConfiguredSearchRouting(): SearchRoutingConfig | undefined {
@@ -278,6 +293,7 @@ function classifyProviderError(provider: ResolvedSearchProvider, err: unknown): 
 	const lower = message.toLowerCase();
 	const status = providerErrorStatus(message);
 	let kind: SearchProviderErrorKind = "unknown";
+	const mentionsUnsupportedWebSearch = /(?:web[_ -]?search|web[_ -]?search_preview|(?:the )?tool)\b.*\b(?:unsupported|not supported|does not support|doesn't support|unknown|unrecognized|unavailable|not found)|\b(?:unsupported|not supported|does not support|doesn't support|unknown|unrecognized|unavailable|not found)\b.*\b(?:web[_ -]?search|web[_ -]?search_preview|(?:the )?tool)/i.test(lower);
 	if (err instanceof CredentialResolutionError || /(?:api )?key (?:not found|missing)|credential resolution/.test(lower)) {
 		kind = "credential";
 	} else if (isAbortError(err)) {
@@ -286,6 +302,8 @@ function classifyProviderError(provider: ResolvedSearchProvider, err: unknown): 
 		kind = "quota";
 	} else if (status === 401 || status === 403) {
 		kind = "auth";
+	} else if (provider === "openai" && (status === 400 || status === 422) && mentionsUnsupportedWebSearch) {
+		kind = "unsupported";
 	} else if (status === 400 || status === 422) {
 		kind = "invalid-request";
 	} else if (status === 402 || status === 429) {
@@ -298,7 +316,7 @@ function classifyProviderError(provider: ResolvedSearchProvider, err: unknown): 
 		kind = "auth";
 	} else if (/bad request|invalid request/.test(lower)) {
 		kind = "invalid-request";
-	} else if (/invalid json|no parseable response|no parseable results|invalid response|returned empty response/.test(lower)) {
+	} else if (/invalid json|no parseable response|no parseable results|invalid response|returned empty response|no web_search_call/.test(lower)) {
 		kind = "invalid-response";
 	} else if (/temporar|service unavailable|server error/.test(lower)) {
 		kind = "transient";
@@ -314,9 +332,12 @@ async function searchWithResolvedProvider(
 	provider: ResolvedSearchProvider,
 	query: string,
 	options: FullSearchOptions,
+	useCurrentModel = false,
 ): Promise<AttributedSearchResponse> {
 	if (provider === "openai") {
-		const result = await searchWithOpenAI(query, options, options.extensionContext);
+		const result = useCurrentModel
+			? await searchWithCurrentModelOpenAI(query, options, options.extensionContext)
+			: await searchWithOpenAI(query, options, options.extensionContext);
 		return { ...result, provider };
 	}
 	if (provider === "brave") return { ...(await searchWithBrave(query, options)), provider };
@@ -357,8 +378,12 @@ async function searchWithResolvedProvider(
 	throw new Error("Exa search returned no results.");
 }
 
-async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, options: FullSearchOptions): Promise<boolean> {
-	if (provider === "openai") return isOpenAISearchAvailable(options.extensionContext);
+async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, options: FullSearchOptions, useCurrentModel = false): Promise<boolean> {
+	if (provider === "openai") {
+		return useCurrentModel
+			? isCurrentModelHostedSearchEligible(options.extensionContext)
+			: isOpenAISearchAvailable(options.extensionContext);
+	}
 	if (provider === "brave") return isBraveAvailable();
 	if (provider === "parallel") return isParallelAvailable();
 	if (provider === "parallel-mcp") return isParallelMcpAvailable();
@@ -499,12 +524,13 @@ async function searchWithConfiguredRouting(
 ): Promise<AttributedSearchResponse> {
 	const diagnostics: string[] = [];
 	for (const provider of routing.providers) {
-		if (!(await isResolvedProviderAvailable(provider, options))) {
+		const useCurrentModel = provider === "openai" && routing.useCurrentModel === true;
+		if (!(await isResolvedProviderAvailable(provider, options, useCurrentModel))) {
 			diagnostics.push(`${provider}: unavailable`);
 			continue;
 		}
 		try {
-			return await searchWithResolvedProvider(provider, query, options);
+			return await searchWithResolvedProvider(provider, query, options, useCurrentModel);
 		} catch (err) {
 			const classified = classifyProviderError(provider, err);
 			diagnostics.push(`${provider} [${classified.kind}]: ${errorMessage(err)}`);

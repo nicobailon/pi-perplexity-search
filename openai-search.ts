@@ -47,6 +47,30 @@ interface OpenAIAuth {
 	model: string;
 	headers: ProviderHeaders;
 	responsesUrl: string;
+	useCodexEndpoint?: boolean;
+}
+
+type CurrentModel = NonNullable<ExtensionContext["model"]>;
+
+function resolveOfficialModelResponsesUrl(model: CurrentModel): string {
+	const url = new URL(model.baseUrl);
+	if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "api.openai.com") {
+		throw new Error("Current model base URL is not the official OpenAI API endpoint");
+	}
+	const pathname = url.pathname.replace(/\/+$/u, "");
+	url.pathname = `${pathname}/responses`;
+	return url.toString();
+}
+
+export function isCurrentModelHostedSearchEligible(ctx?: Pick<ExtensionContext, "model">): boolean {
+	const model = ctx?.model;
+	if (!model || model.provider !== "openai" || model.api !== "openai-responses" || !/^gpt-/iu.test(model.id)) return false;
+	try {
+		resolveOfficialModelResponsesUrl(model);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 interface NormalizedDomainFilters {
@@ -240,6 +264,25 @@ export async function isOpenAISearchAvailable(ctx?: ExtensionContext): Promise<b
 	});
 }
 
+async function resolveCurrentModelAuth(ctx: ExtensionContext, signal?: AbortSignal): Promise<OpenAIAuth> {
+	const model = ctx.model;
+	if (!model || !isCurrentModelHostedSearchEligible(ctx)) {
+		throw new Error("Current model is not eligible for official OpenAI Hosted web search");
+	}
+	const resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+	if (signal?.aborted) signal.throwIfAborted();
+	if (!resolved.ok) throw new Error(`OpenAI current model authentication failed: ${resolved.error}`);
+	if (!resolved.apiKey) throw new Error("OpenAI current model authentication failed: API key unavailable");
+	return {
+		provider: "openai",
+		apiKey: resolved.apiKey,
+		model: model.id,
+		headers: resolved.headers ?? {},
+		responsesUrl: resolveOfficialModelResponsesUrl(model),
+		useCodexEndpoint: false,
+	};
+}
+
 function buildInstructions(options: SearchOptions): string {
 	const lines = [
 		"Search the web and return a concise answer grounded only in the web results.",
@@ -279,14 +322,26 @@ function buildWebSearchTool(options: SearchOptions): Record<string, unknown> {
 	return tool;
 }
 
-async function parseOpenAIResponse(response: Response): Promise<Record<string, unknown>> {
+interface ParsedOpenAIResponse {
+	payload: Record<string, unknown>;
+	webSearchCallSeen: boolean;
+}
+
+function isWebSearchCall(item: unknown): boolean {
+	return !!item && typeof item === "object" && (item as { type?: unknown }).type === "web_search_call";
+}
+
+async function parseOpenAIResponse(response: Response): Promise<ParsedOpenAIResponse> {
 	const text = await response.text();
 	const trimmed = text.trim();
 	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
 		try {
 			const parsed = JSON.parse(trimmed);
-			if (Array.isArray(parsed)) return { output: parsed };
-			return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : { output: [] };
+			const payload = Array.isArray(parsed)
+				? { output: parsed }
+				: parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : { output: [] };
+			const output = Array.isArray(payload.output) ? payload.output : [];
+			return { payload, webSearchCallSeen: output.some(isWebSearchCall) };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			throw new Error(`OpenAI API returned invalid JSON: ${message}`);
@@ -295,13 +350,18 @@ async function parseOpenAIResponse(response: Response): Promise<Record<string, u
 
 	const outputItems: unknown[] = [];
 	let completedResponse: Record<string, unknown> | null = null;
+	let webSearchCallSeen = false;
 	for (const line of text.split("\n")) {
 		if (!line.startsWith("data: ")) continue;
 		const data = line.slice(6).trim();
 		if (!data || data === "[DONE]") continue;
 		try {
 			const parsed = JSON.parse(data) as Record<string, unknown>;
-			if (parsed.type === "response.output_item.done" && parsed.item) outputItems.push(parsed.item);
+			if (typeof parsed.type === "string" && parsed.type.startsWith("response.web_search_call")) webSearchCallSeen = true;
+			if (parsed.type === "response.output_item.done" && parsed.item) {
+				outputItems.push(parsed.item);
+				webSearchCallSeen ||= isWebSearchCall(parsed.item);
+			}
 			if ((parsed.type === "response.done" || parsed.type === "response.completed") && parsed.response && typeof parsed.response === "object") {
 				completedResponse = parsed.response as Record<string, unknown>;
 			}
@@ -311,9 +371,10 @@ async function parseOpenAIResponse(response: Response): Promise<Record<string, u
 
 	if (completedResponse) {
 		const output = Array.isArray(completedResponse.output) ? completedResponse.output : [];
-		return output.length > 0 ? completedResponse : { ...completedResponse, output: outputItems };
+		const payload = output.length > 0 ? completedResponse : { ...completedResponse, output: outputItems };
+		return { payload, webSearchCallSeen: webSearchCallSeen || output.some(isWebSearchCall) };
 	}
-	if (outputItems.length > 0) return { output: outputItems };
+	if (outputItems.length > 0) return { payload: { output: outputItems }, webSearchCallSeen: webSearchCallSeen || outputItems.some(isWebSearchCall) };
 	throw new Error("OpenAI API returned no parseable response output");
 }
 
@@ -411,21 +472,11 @@ function extractAnswer(output: unknown[]): string {
 	return parts.join("\n").trim();
 }
 
-export async function searchWithOpenAI(
+async function runOpenAISearch(
 	query: string,
-	options: SearchOptions = {},
-	ctx?: ExtensionContext,
+	options: SearchOptions,
+	auth: OpenAIAuth,
 ): Promise<SearchResponse> {
-	const auth = await resolveOpenAIAuth(ctx, options.signal);
-	if (!auth) {
-		throw new Error(
-			"OpenAI web search unavailable. Either:\n" +
-			"  1. Use /login to sign in with a Codex subscription\n" +
-			`  2. Create ${CONFIG_PATH} with { "openaiApiKey": "your-key" }\n` +
-			"  3. Set OPENAI_API_KEY environment variable",
-		);
-	}
-
 	const activityId = activityMonitor.logStart({ type: "api", query });
 	const headers: Record<string, string> = {
 		...toRequestHeaders(auth.headers),
@@ -433,7 +484,7 @@ export async function searchWithOpenAI(
 		"Content-Type": "application/json",
 		"OpenAI-Beta": "responses=experimental",
 	};
-	const useCodexEndpoint = auth.provider === "openai-codex" || isCodexJwt(auth.apiKey);
+	const useCodexEndpoint = auth.useCodexEndpoint ?? (auth.provider === "openai-codex" || isCodexJwt(auth.apiKey));
 	if (useCodexEndpoint) {
 		const accountId = extractAccountId(auth.apiKey);
 		if (accountId) headers["chatgpt-account-id"] = accountId;
@@ -469,7 +520,8 @@ export async function searchWithOpenAI(
 		}
 
 		const parsed = await parseOpenAIResponse(response);
-		const output = Array.isArray(parsed.output) ? parsed.output : [];
+		const output = Array.isArray(parsed.payload.output) ? parsed.payload.output : [];
+		if (!parsed.webSearchCallSeen) throw new Error("OpenAI web_search returned no web_search_call");
 		const answer = extractAnswer(output);
 		const results = extractSearchResults(output, options.numResults);
 
@@ -492,4 +544,31 @@ export async function searchWithOpenAI(
 		if (err instanceof Error) redactedError.name = err.name;
 		throw redactedError;
 	}
+}
+
+export async function searchWithOpenAI(
+	query: string,
+	options: SearchOptions = {},
+	ctx?: ExtensionContext,
+): Promise<SearchResponse> {
+	const auth = await resolveOpenAIAuth(ctx, options.signal);
+	if (!auth) {
+		throw new Error(
+			"OpenAI web search unavailable. Either:\n" +
+			"  1. Use /login to sign in with a Codex subscription\n" +
+			`  2. Create ${CONFIG_PATH} with { "openaiApiKey": "your-key" }\n` +
+			"  3. Set OPENAI_API_KEY environment variable",
+		);
+	}
+	return runOpenAISearch(query, options, auth);
+}
+
+export async function searchWithCurrentModelOpenAI(
+	query: string,
+	options: SearchOptions = {},
+	ctx?: ExtensionContext,
+): Promise<SearchResponse> {
+	if (!ctx) throw new Error("OpenAI current-model search requires an extension context");
+	const auth = await resolveCurrentModelAuth(ctx, options.signal);
+	return runOpenAISearch(query, options, auth);
 }

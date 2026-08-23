@@ -79,7 +79,10 @@ test("previously unsupported providers resolve explicit env and command sources 
 		globalThis.fetch = async (url, init = {}) => {
 			calls.push({ url: String(url), headers: Object.fromEntries(new Headers(init.headers)) });
 			return new Response(JSON.stringify({
-				output: [{ type: "message", content: [{ type: "output_text", text: "OpenAI answer" }] }],
+				output: [
+					{ type: "web_search_call", action: { sources: [] } },
+					{ type: "message", content: [{ type: "output_text", text: "OpenAI answer" }] },
+				],
 			}), { status: 200 });
 		};
 		await searchWithOpenAI("openai", { numResults: 1 });
