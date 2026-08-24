@@ -8,13 +8,14 @@ const MAX_INLINE_FILE_CHARS = 100_000;
 let ghAvailable: boolean | null = null;
 let ghHintShown = false;
 
-export async function checkGhAvailable(): Promise<boolean> {
+export async function checkGhAvailable(signal?: AbortSignal): Promise<boolean> {
 	if (ghAvailable !== null) return ghAvailable;
 
 	return new Promise((resolve) => {
-		execFile("gh", ["--version"], { timeout: 5000 }, (err) => {
-			ghAvailable = !err;
-			resolve(ghAvailable);
+		execFile("gh", ["--version"], { timeout: 5000, ...(signal ? { signal } : {}) }, (err) => {
+			const available = !err;
+			if (!signal?.aborted) ghAvailable = available;
+			resolve(available);
 		});
 	});
 }

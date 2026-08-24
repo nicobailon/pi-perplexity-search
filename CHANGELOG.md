@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Auto-specialize GitHub pull request and issue URLs in `fetch_content`, with `gh`-first metadata, bounded REST fallback, comment-anchor inclusion, truncation markers, and the `githubPrIssue.enabled` opt-out (#294).
 - Gemini generate-content calls (search, URL context, PDF/inline-data extraction) can authenticate with Google Application Default Credentials via `geminiAuth: "adc"` instead of a `GEMINI_API_KEY`. Requests go to the Vertex AI endpoint with an OAuth bearer token minted from the ADC file (`authorized_user` refresh token or `service_account` JWT assertion), using `geminiProject`/`geminiLocation` (or `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION`). Tokens are cached and refreshed from expiry and redacted from errors. YouTube and local video analysis still require a `GEMINI_API_KEY` because they use the Gemini Files API.
 
 ### Fixed

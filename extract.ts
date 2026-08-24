@@ -8,6 +8,7 @@ import { activityMonitor } from "./activity.ts";
 import { extractRSCContent } from "./rsc-extract.ts";
 import { extractPDFToMarkdown, isPDF, loadPDFConfig } from "./pdf-extract.ts";
 import { extractGitHub } from "./github-extract.ts";
+import { extractGitHubIssuePr } from "./github-issue-pr.ts";
 import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, extractYouTubeFrames, getYouTubeStreamInfo } from "./youtube-extract.ts";
 import { CredentialResolutionError } from "./credential-source.ts";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
@@ -583,6 +584,18 @@ export async function extractContent(
 		if (!remoteUrl) new URL(url);
 	} catch (err) {
 		return { url, title: "", content: "", error: errorMessage(err) };
+	}
+
+	try {
+		const ghIssuePrResult = await extractGitHubIssuePr(url, signal, options);
+		if (ghIssuePrResult) return ghIssuePrResult;
+		if (signal?.aborted) return abortedResult(url);
+	} catch (err) {
+		const message = errorMessage(err);
+		if (isAbortError(err)) return abortedResult(url);
+		if (isConfigParseError(err)) {
+			return { url, title: "", content: "", error: message };
+		}
 	}
 
 	try {

@@ -123,12 +123,13 @@ web_search({ queries: ["query 1", "query 2"], workflow: "auto-summary" })
 
 ### fetch_content
 
-Fetch URL(s) as readable markdown, exact textual HTTP bodies, direct images, or page-grounded answers. Automatically detects and handles GitHub repos, YouTube videos, PDFs, local video files, images, and regular web pages.
+Fetch URL(s) as readable markdown, exact textual HTTP bodies, direct images, or page-grounded answers. Automatically detects and handles GitHub repos, GitHub PRs and issues, YouTube videos, PDFs, local video files, images, and regular web pages.
 
 ```typescript
 fetch_content({ url: "https://example.com/article" })
 fetch_content({ urls: ["url1", "url2", "url3"] })
 fetch_content({ url: "https://github.com/owner/repo" })
+fetch_content({ url: "https://github.com/owner/repo/pull/123#discussion_r456" })
 fetch_content({ url: "https://youtube.com/watch?v=abc", prompt: "What libraries are shown?" })
 fetch_content({ url: "/path/to/recording.mp4", prompt: "What error appears on screen?" })
 fetch_content({ url: "https://youtube.com/watch?v=abc", timestamp: "23:41-25:00", frames: 4 })
@@ -185,6 +186,10 @@ The artifact includes `supported`, `contradicted`, `unclear`, or `missing-eviden
 GitHub URLs are cloned locally instead of scraped. The agent gets real file contents and a local path to explore with `read` and `bash`. Root URLs return the repo tree + README, `/tree/` paths return directory listings, `/blob/` paths return file contents.
 
 Repos over 350MB get a lightweight API-based view instead of a full clone (override with `forceClone: true`). Commit SHA URLs are handled via the API. Clones are cached for the session and wiped on session change. Private repos require the `gh` CLI. Set `githubClone.enabled` to `false` to skip this GitHub-specific clone/API handling; `fetch_content` remains available, so the URL can continue through the normal HTTP extraction path.
+
+Pull request and issue URLs are rendered as one priority-ordered markdown document instead of scraped HTML. PR views include status, body, checks when `gh` supports them, review verdicts, linked references, files, commits, conversation comments, review thread comments, truncation markers, and escalation commands. Issue views include state, metadata, body, linked closing PRs when available, and comments. Comment anchors such as `#issuecomment-...` and `#discussion_r...` are forced inline. The full rendered document is stored for `get_search_content` offsets and `findText`.
+
+`fetch_content` uses `gh pr view` or `gh issue view` first with prompts disabled. It retries with a smaller field set when an older `gh` does not know a requested field. Public unauthenticated REST is used as a bounded fallback under the same `fetchContent.domainPolicy` and SSRF rules; REST cannot include checks. Set `githubPrIssue.enabled` to `false` to skip PR/issue specialization and keep normal HTTP extraction.
 
 ### YouTube videos
 
@@ -403,6 +408,9 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
     "maxRepoSizeMB": 350,
     "cloneTimeoutSeconds": 30,
     "clonePath": "/tmp/pi-github-repos"
+  },
+  "githubPrIssue": {
+    "enabled": true
   },
   "youtube": {
     "enabled": true,
@@ -812,7 +820,7 @@ Both shortcuts are configurable via `~/.pi/web-search.json`:
 
 Values use the same format as pi keybindings (e.g. `ctrl+s`, `ctrl+shift+s`, `alt+r`). Changes take effect on next pi restart.
 
-Set `"enabled": false` under `tools`, `commands`, `image`, or `pdf` to disable that feature. Tool-specific settings override the legacy `webSearch.enabled` shorthand; without an override, it still disables `web_search` and `source_check`. `image.enabled: false` blocks direct image fetches and video frame extraction, and prevents video thumbnails. `pdf.enabled: false` blocks PDF extraction. For GitHub specifically, `githubClone.enabled: false` only skips clone/API specialization; it does not unregister `fetch_content` or block generic URL extraction. Pi restart is required for tool and command registration changes.
+Set `"enabled": false` under `tools`, `commands`, `image`, or `pdf` to disable that feature. Tool-specific settings override the legacy `webSearch.enabled` shorthand; without an override, it still disables `web_search` and `source_check`. `image.enabled: false` blocks direct image fetches and video frame extraction, and prevents video thumbnails. `pdf.enabled: false` blocks PDF extraction. For GitHub specifically, `githubClone.enabled: false` only skips clone/API specialization, and `githubPrIssue.enabled: false` only skips PR/issue specialization; neither setting unregisters `fetch_content` or blocks generic URL extraction. Pi restart is required for tool and command registration changes.
 
 Rate limits: Perplexity is capped at 10 requests/minute (client-side). Jina Search, TinyFish, Search1API, and Searchinfinity apply the plan limits documented by their APIs. Querit Search and Contents subscriptions are independent. Content fetches run 3 concurrent with a 30s timeout for the direct HTTP fetch of each URL. Remote extraction fallbacks carry their own budgets and are not covered by that number: Jina Reader 30s, Firecrawl 60s, Kagi Extract 60s, Ollama Web Fetch 60s, Bright Data Web Unlocker 60s, TinyFish up to 150s, Gemini 120s, Datalab 120s (capped at 300s, rate-limited to 25 requests/minute on the free tier). `pdf.maxSizeMB` defaults to 20 and is capped at 50. `pdf.maxPages` defaults to 100 and limits every PDF provider to the first N pages.
 
@@ -824,7 +832,7 @@ Rate limits: Perplexity is capped at 10 requests/minute (client-side). Jina Sear
 - Gemini can process videos up to ~1 hour; longer videos may be truncated.
 - PDFs are text-extracted only (no OCR for scanned documents).
 - GitHub branch names with slashes may misresolve file paths; the clone still works and the agent can navigate manually.
-- Non-code GitHub URLs (issues, PRs, wiki) fall through to normal web extraction.
+- GitHub wiki, discussion, and other non-code pages still fall through to normal web extraction. PR review-thread resolution state is unknown in the specialized PR view, and REST fallback omits checks.
 
 <details>
 <summary>Files</summary>
@@ -871,6 +879,7 @@ Rate limits: Perplexity is capped at 10 requests/minute (client-side). Jina Sear
 | `video-extract.ts` | Local video detection, Files API upload, Gemini analysis |
 | `github-extract.ts` | GitHub URL parsing, clone cache, content generation |
 | `github-api.ts` | GitHub API fallback for large repos and commit SHAs |
+| `github-issue-pr.ts` | GitHub PR and issue URL parsing, gh/REST fetch, markdown rendering |
 | `perplexity.ts` | Perplexity API client with rate limiting |
 | `datalab-pdf-extract.ts` | Datalab hosted PDF-to-Markdown conversion client (upload → convert → poll) |
 | `pdf-extract.ts` | PDF text extraction, saves to markdown |
