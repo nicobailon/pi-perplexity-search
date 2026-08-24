@@ -3,6 +3,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activityMonitor } from "./activity.ts";
 import { CredentialResolutionError } from "./credential-source.ts";
 import { getApiKey, getVersionedApiBase, fetchGeminiApi, isGatewayConfigured, isGeminiApiAvailable, redactGeminiApiResponse } from "./gemini-api.ts";
+import { isGeminiAdcAvailable } from "./gemini-adc.ts";
 import { getGeminiWebAvailabilityDiagnostic, isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.ts";
 import { isExaAvailable, searchWithExa } from "./exa.ts";
@@ -349,7 +350,8 @@ async function searchWithResolvedProvider(
 			"Gemini search unavailable. Either:\n" +
 			`  1. Configure geminiApiKey in ${CONFIG_PATH} or set GEMINI_API_KEY\n` +
 			"  2. Set GOOGLE_GEMINI_BASE_URL + CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
-			"  3. Sign into gemini.google.com in a supported Chromium-based browser",
+			"  3. Set geminiAuth to \"adc\" in web-search.json with a Google Cloud ADC + project/location\n" +
+			"  4. Sign into gemini.google.com in a supported Chromium-based browser",
 		);
 	}
 	const result = await searchWithExa(query, options);
@@ -732,8 +734,8 @@ async function searchWithGeminiApi(query: string, options: SearchOptions = {}): 
 		AbortSignal.timeout(120000),
 		...(options.signal ? [options.signal] : []),
 	]);
-	const apiKey = await getApiKey(requestSignal);
-	if (!apiKey && !isGatewayConfigured()) return null;
+	const apiKey = isGeminiAdcAvailable() ? null : await getApiKey(requestSignal);
+	if (!apiKey && !isGatewayConfigured() && !isGeminiAdcAvailable()) return null;
 
 	const activityId = activityMonitor.logStart({ type: "api", query });
 

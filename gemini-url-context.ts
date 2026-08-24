@@ -1,6 +1,7 @@
 import { activityMonitor } from "./activity.ts";
 import { CredentialResolutionError } from "./credential-source.ts";
 import { getApiKey, getVersionedApiBase, fetchGeminiApi, isGatewayConfigured, DEFAULT_MODEL } from "./gemini-api.ts";
+import { isGeminiAdcAvailable } from "./gemini-adc.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { extractHeadingTitle, type ExtractedContent } from "./extract.ts";
 
@@ -23,8 +24,8 @@ export async function extractWithUrlContext(
 		AbortSignal.timeout(60000),
 		...(signal ? [signal] : []),
 	]);
-	const apiKey = await getApiKey(requestSignal);
-	if (!apiKey && !isGatewayConfigured()) return null;
+	const apiKey = isGeminiAdcAvailable() ? null : await getApiKey(requestSignal);
+	if (!apiKey && !isGatewayConfigured() && !isGeminiAdcAvailable()) return null;
 
 	const activityId = activityMonitor.logStart({ type: "api", query: `url_context: ${url}` });
 
