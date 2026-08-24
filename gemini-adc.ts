@@ -105,14 +105,17 @@ export function clearAdcTokenCache(): void {
 }
 
 /**
- * Classifies a failed OAuth token exchange. 4xx rejections mean the configured
- * credentials themselves were refused (revoked refresh token, bad client,
- * insufficient scopes) — a hard credential problem callers should surface
- * rather than silently fall back. Network failures, timeouts, and 5xx are left
- * as transient errors so existing per-provider fallbacks keep working.
+ * Classifies a failed OAuth token exchange. Only explicit credential/authorization
+ * rejections (400 invalid_client/invalid_grant/invalid_scope, 401, 403 denied)
+ * mean the configured credentials themselves were refused — a hard credential
+ * problem callers should surface rather than silently fall back. Everything else
+ * (429 rate limit, 404, 5xx, network failures, timeouts) is transient, so it is
+ * left as a plain Error and existing per-provider fallbacks keep working.
  */
+const OAUTH_CREDENTIAL_REJECTION_STATUSES = new Set([400, 401, 403]);
+
 function throwOnTokenExchangeFailure(res: Response, detail: string, status: number): never {
-	if (status >= 400 && status < 500) {
+	if (OAUTH_CREDENTIAL_REJECTION_STATUSES.has(status)) {
 		throw new CredentialResolutionError("Gemini ADC", "oauth-credential-rejected");
 	}
 	throw new Error(`Gemini ADC token exchange failed (${status}): ${detail.slice(0, 300)}`);

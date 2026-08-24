@@ -164,47 +164,42 @@ test("Gemini ADC never leaks the access token in errors", async () => {	const ro
 	assert.equal(output.leak, false, "access token must not leak in error messages");
 });
 
-test("Gemini ADC token exchange rejection is a CredentialResolutionError; 5xx stays transient", async () => {
+test("Gemini ADC classifies only credential rejections as CredentialResolutionError", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-classify-"));
 	await writeAdc(root);
+	const env = { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: join(root, "adc.json") };
 
-	// A 400 from the OAuth endpoint is a credential rejection, not a transient failure.
-	const rejected = runChild(`
-		globalThis.fetch = async () => {
-			return new Response(JSON.stringify({ error: "invalid_grant", error_description: "Token has been expired or revoked." }), { status: 400 });
-		};
+	const classify = (status, body) => runChild(`
+		globalThis.fetch = async () => new Response(${JSON.stringify(body)}, { status: ${status} });
 		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
 		let threw = null;
 		try {
 			await adc.getAdcAccessToken();
 		} catch (err) {
-			threw = { name: err.name, message: err.message, category: err.category };
+			threw = { name: err.name, category: err.category, message: err.message };
 		}
 		console.log(JSON.stringify({ threw }));
-	`, { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: join(root, "adc.json") });
-	assert.equal(rejected.status, 0, rejected.stderr);
-	const rejectedOut = JSON.parse(rejected.stdout.trim());
-	assert.equal(rejectedOut.threw.name, "CredentialResolutionError");
-	assert.equal(rejectedOut.threw.category, "oauth-credential-rejected");
-	assert.match(rejectedOut.threw.message, /OAuth token exchange rejected/);
+	`, env);
 
-	// A 500 from the OAuth endpoint is transient: propagate as a plain error so
-	// per-provider fallbacks (Gemini Web, local PDF) can still run.
-	const upstream = runChild(`
-		globalThis.fetch = async () => new Response("upstream boom", { status: 500 });
-		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
-		let threw = null;
-		try {
-			await adc.getAdcAccessToken();
-		} catch (err) {
-			threw = { name: err.name, message: err.message, category: err.category };
-		}
-		console.log(JSON.stringify({ threw }));
-	`, { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: join(root, "adc.json") });
-	assert.equal(upstream.status, 0, upstream.stderr);
-	const upstreamOut = JSON.parse(upstream.stdout.trim());
-	assert.equal(upstreamOut.threw.name, "Error");
-	assert.match(upstreamOut.threw.message, /token exchange failed \(500\)/);
+	// Credential rejections -> CredentialResolutionError.
+	for (const status of [400, 401, 403]) {
+		const out = classify(status, JSON.stringify({ error: "denied" }));
+		assert.equal(out.status, 0, out.stderr);
+		const { threw } = JSON.parse(out.stdout.trim());
+		assert.equal(threw.name, "CredentialResolutionError", `status ${status}`);
+		assert.equal(threw.category, "oauth-credential-rejected", `status ${status}`);
+		assert.match(threw.message, /OAuth token exchange rejected/, `status ${status}`);
+	}
+
+	// Transient failures stay plain Errors so fallbacks still run.
+	for (const status of [429, 404, 500, 502, 503]) {
+		const out = classify(status, "upstream boom");
+		assert.equal(out.status, 0, out.stderr);
+		const { threw } = JSON.parse(out.stdout.trim());
+		assert.equal(threw.name, "Error", `status ${status}`);
+		assert.equal(threw.category, undefined, `status ${status}`);
+		assert.match(threw.message, new RegExp(`token exchange failed \\(${status}\\)`), `status ${status}`);
+	}
 });
 
 test("Gemini ADC does not advertise the Files-API (YouTube/video) path", async () => {
