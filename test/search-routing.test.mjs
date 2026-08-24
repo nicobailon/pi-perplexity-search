@@ -336,7 +336,7 @@ test("current-model routing uses the official OpenAI model, auth, headers, and e
 	assert.equal(output.captured.headers["x-current-model"], "yes");
 });
 
-test("non-official, non-GPT, and Codex current models skip automatic Hosted Search", async () => {
+test("non-official and non-GPT current models skip automatic Hosted Search", async () => {
 	const home = await createConfig({
 		searchRouting: { providers: ["openai", "tavily"], useCurrentModel: true, fallbackOn: ["unsupported", "network"] },
 	});
@@ -351,7 +351,6 @@ test("non-official, non-GPT, and Codex current models skip automatic Hosted Sear
 		const models = [
 			{ provider: "openai", api: "openai-responses", id: "gpt-5.6-sol", baseUrl: "https://ai.feei.cn/v1" },
 			{ provider: "openai", api: "openai-responses", id: "grok-4.6", baseUrl: "https://api.openai.com/v1" },
-			{ provider: "openai-codex", api: "openai-codex-responses", id: "gpt-5.6-sol", baseUrl: "https://api.openai.com/v1" },
 		];
 		const { search } = await import(${JSON.stringify(searchModuleUrl)});
 		const results = [];
@@ -369,9 +368,51 @@ test("non-official, non-GPT, and Codex current models skip automatic Hosted Sear
 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.deepEqual(output.results, ["tavily", "tavily", "tavily"]);
-	assert.equal(output.calls.length, 3);
+	assert.deepEqual(output.results, ["tavily", "tavily"]);
+	assert.equal(output.calls.length, 2);
 	assert.ok(output.calls.every((url) => url === "https://api.tavily.com/search"));
+});
+
+test("Codex current models use the official Codex Responses search endpoint", async () => {
+	const home = await createConfig({
+		searchRouting: { providers: ["openai", "tavily"], useCurrentModel: true, fallbackOn: ["unsupported", "network"] },
+	});
+	const child = runChild(`
+		let captured = null;
+		const calls = [];
+		globalThis.fetch = async (url, init = {}) => {
+			const target = String(url);
+			calls.push(target);
+			if (target !== "https://chatgpt.com/backend-api/codex/responses") throw new Error("Tavily must not run: " + target);
+			captured = { body: JSON.parse(init.body), headers: Object.fromEntries(new Headers(init.headers)) };
+			return new Response(JSON.stringify({ output: [
+				{ type: "web_search_call", action: { sources: [{ title: "Codex source", url: "https://example.com/codex" }] } },
+				{ type: "message", content: [{ type: "output_text", text: "Codex hosted answer" }] },
+			] }), { status: 200, headers: { "content-type": "application/json" } });
+		};
+		const model = { provider: "openai-codex", api: "openai-codex-responses", id: "gpt-5.6-sol", baseUrl: "https://chatgpt.com/backend-api" };
+		const ctx = {
+			model,
+			modelRegistry: {
+				getApiKeyAndHeaders: async (selected) => ({ ok: true, apiKey: selected.id + "-key", headers: { "X-Current-Model": "yes" } }),
+			},
+		};
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("official Codex hosted search", { provider: "auto", extensionContext: ctx });
+		console.log(JSON.stringify({ provider: result.provider, answer: result.answer, calls, captured }));
+	`, {
+		PI_CODING_AGENT_DIR: home,
+		TAVILY_API_KEY: "tavily-must-not-run",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.provider, "openai");
+	assert.equal(output.answer, "Codex hosted answer");
+	assert.deepEqual(output.calls, ["https://chatgpt.com/backend-api/codex/responses"]);
+	assert.equal(output.captured.body.model, "gpt-5.6-sol");
+	assert.equal(output.captured.headers.authorization, "Bearer gpt-5.6-sol-key");
+	assert.equal(output.captured.headers["x-current-model"], "yes");
 });
 
 test("explicit OpenAI provider bypasses current-model restrictions", async () => {

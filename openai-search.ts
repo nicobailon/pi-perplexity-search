@@ -52,21 +52,38 @@ interface OpenAIAuth {
 
 type CurrentModel = NonNullable<ExtensionContext["model"]>;
 
-function resolveOfficialModelResponsesUrl(model: CurrentModel): string {
+interface CurrentModelSearchTarget {
+	responsesUrl: string;
+	useCodexEndpoint: boolean;
+}
+
+function resolveCurrentModelSearchTarget(model: CurrentModel): CurrentModelSearchTarget {
 	const url = new URL(model.baseUrl);
-	if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "api.openai.com") {
-		throw new Error("Current model base URL is not the official OpenAI API endpoint");
+	if (url.protocol !== "https:") throw new Error("Current model base URL must use HTTPS");
+
+	if (model.provider === "openai" && model.api === "openai-responses" && url.hostname.toLowerCase() === "api.openai.com") {
+		const pathname = url.pathname.replace(/\/+$/u, "");
+		url.pathname = `${pathname}/responses`;
+		return { responsesUrl: url.toString(), useCodexEndpoint: false };
 	}
-	const pathname = url.pathname.replace(/\/+$/u, "");
-	url.pathname = `${pathname}/responses`;
-	return url.toString();
+
+	if (
+		model.provider === "openai-codex" &&
+		model.api === "openai-codex-responses" &&
+		url.hostname.toLowerCase() === "chatgpt.com" &&
+		url.pathname.replace(/\/+$/u, "") === "/backend-api"
+	) {
+		return { responsesUrl: CODEX_RESPONSES_URL, useCodexEndpoint: true };
+	}
+
+	throw new Error("Current model is not backed by an official OpenAI Responses endpoint");
 }
 
 export function isCurrentModelHostedSearchEligible(ctx?: Pick<ExtensionContext, "model">): boolean {
 	const model = ctx?.model;
-	if (!model || model.provider !== "openai" || model.api !== "openai-responses" || !/^gpt-/iu.test(model.id)) return false;
+	if (!model || !/^gpt-/iu.test(model.id)) return false;
 	try {
-		resolveOfficialModelResponsesUrl(model);
+		resolveCurrentModelSearchTarget(model);
 		return true;
 	} catch {
 		return false;
@@ -269,6 +286,7 @@ async function resolveCurrentModelAuth(ctx: ExtensionContext, signal?: AbortSign
 	if (!model || !isCurrentModelHostedSearchEligible(ctx)) {
 		throw new Error("Current model is not eligible for official OpenAI Hosted web search");
 	}
+	const target = resolveCurrentModelSearchTarget(model);
 	const resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (signal?.aborted) signal.throwIfAborted();
 	if (!resolved.ok) throw new Error(`OpenAI current model authentication failed: ${resolved.error}`);
@@ -278,8 +296,8 @@ async function resolveCurrentModelAuth(ctx: ExtensionContext, signal?: AbortSign
 		apiKey: resolved.apiKey,
 		model: model.id,
 		headers: resolved.headers ?? {},
-		responsesUrl: resolveOfficialModelResponsesUrl(model),
-		useCodexEndpoint: false,
+		responsesUrl: target.responsesUrl,
+		useCodexEndpoint: target.useCodexEndpoint,
 	};
 }
 

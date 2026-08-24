@@ -62,7 +62,7 @@ To route automatic searches through the active Pi model, configure an ordered ro
 }
 ```
 
-With `useCurrentModel: true`, the automatic `openai` step uses Hosted `web_search` only when the active model is a GPT model from provider `openai`, uses `openai-responses`, and points at HTTPS `api.openai.com`. Third-party gateways, Azure, Codex Responses, and other models continue to the next route entry. A tool-level `provider` or top-level `provider` remains an explicit override; `provider: "openai"` keeps the existing independent OpenAI/Codex search-model behavior.
+With `useCurrentModel: true`, the automatic `openai` step uses Hosted `web_search` when the active model is a GPT model backed by an official OpenAI Responses endpoint: `openai`/`openai-responses` on HTTPS `api.openai.com`, or `openai-codex`/`openai-codex-responses` on the official ChatGPT Codex endpoint. Third-party gateways, Azure, and other models continue to the next route entry. A tool-level `provider` or top-level `provider` remains an explicit override; `provider: "openai"` keeps the existing independent OpenAI/Codex search-model behavior.
 
 For sandboxed networks that provide outbound proxy transport through environment variables, set `ssrf.trustEnvProxy` to `true` to skip local DNS preflight for proxied hostnames:
 
