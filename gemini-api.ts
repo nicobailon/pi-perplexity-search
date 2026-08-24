@@ -193,12 +193,25 @@ export async function fetchGeminiApi(
 	}
 }
 
-export function isGeminiApiAvailable(): boolean {
-	return isGeminiAdcAvailable() || hasCredentialSource({
+function hasGeminiApiKeySource(): boolean {
+	return hasCredentialSource({
 		provider: "Gemini",
 		configuredValue: loadConfig().geminiApiKey,
 		environmentValue: process.env.GEMINI_API_KEY,
-	}) || isGatewayConfigured();
+	});
+}
+
+export function isGeminiApiAvailable(): boolean {
+	return isGeminiAdcAvailable() || hasGeminiApiKeySource() || isGatewayConfigured();
+}
+
+/**
+ * Whether the Gemini Files-API paths (YouTube and local video analysis) can
+ * authenticate. These use the Gemini Files API and metadata endpoints, which do
+ * not support ADC, so they still require an API key or a Cloudflare gateway.
+ */
+export function isGeminiApiAvailableWithVideo(): boolean {
+	return hasGeminiApiKeySource() || isGatewayConfigured();
 }
 
 export interface GeminiApiOptions {

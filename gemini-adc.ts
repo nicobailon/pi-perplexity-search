@@ -3,7 +3,7 @@ import { createSign } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getWebSearchConfigPath } from "./utils.ts";
-import { redactCredential } from "./credential-source.ts";
+import { redactCredential, CredentialResolutionError } from "./credential-source.ts";
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_ADC_PATH = join(homedir(), ".config", "gcloud", "application_default_credentials.json");
@@ -104,6 +104,20 @@ export function clearAdcTokenCache(): void {
 	cachedToken = null;
 }
 
+/**
+ * Classifies a failed OAuth token exchange. 4xx rejections mean the configured
+ * credentials themselves were refused (revoked refresh token, bad client,
+ * insufficient scopes) — a hard credential problem callers should surface
+ * rather than silently fall back. Network failures, timeouts, and 5xx are left
+ * as transient errors so existing per-provider fallbacks keep working.
+ */
+function throwOnTokenExchangeFailure(res: Response, detail: string, status: number): never {
+	if (status >= 400 && status < 500) {
+		throw new CredentialResolutionError("Gemini ADC", "oauth-credential-rejected");
+	}
+	throw new Error(`Gemini ADC token exchange failed (${status}): ${detail.slice(0, 300)}`);
+}
+
 async function exchangeRefreshToken(cfg: AdcFile, signal?: AbortSignal): Promise<CachedToken> {
 	const body = new URLSearchParams({
 		client_id: cfg.client_id ?? "",
@@ -119,7 +133,7 @@ async function exchangeRefreshToken(cfg: AdcFile, signal?: AbortSignal): Promise
 	});
 	const text = await res.text();
 	if (!res.ok) {
-		throw new Error(`Gemini ADC token exchange failed (${res.status}): ${text.slice(0, 300)}`);
+		throwOnTokenExchangeFailure(res, text, res.status);
 	}
 	const data = JSON.parse(text) as { access_token?: string; expires_in?: number };
 	if (!data.access_token) {
@@ -163,7 +177,7 @@ async function exchangeServiceAccountJwt(cfg: AdcFile, signal?: AbortSignal): Pr
 	});
 	const text = await res.text();
 	if (!res.ok) {
-		throw new Error(`Gemini ADC service account token exchange failed (${res.status}): ${text.slice(0, 300)}`);
+		throwOnTokenExchangeFailure(res, text, res.status);
 	}
 	const data = JSON.parse(text) as { access_token?: string; expires_in?: number };
 	if (!data.access_token) {

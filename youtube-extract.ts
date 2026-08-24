@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { activityMonitor } from "./activity.ts";
 import { canAttachImages } from "./feature-config.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
-import { isGeminiApiAvailable, queryGeminiApiWithVideo } from "./gemini-api.ts";
+import { isGeminiApiAvailableWithVideo, queryGeminiApiWithVideo } from "./gemini-api.ts";
 import { isPerplexityAvailable, searchWithPerplexity } from "./perplexity.ts";
 import { extractHeadingTitle, type ExtractedContent, type FrameResult, type VideoFrame } from "./extract.ts";
 import { formatSeconds, readExecError, isTimeoutError, trimErrorText, mapFfmpegError, getWebSearchConfigPath } from "./utils.ts";
@@ -266,7 +266,7 @@ async function tryGeminiApi(
 	attemptErrors: string[],
 ): Promise<ExtractedContent | null> {
 	try {
-		if (!isGeminiApiAvailable()) return null;
+		if (!isGeminiApiAvailableWithVideo()) return null;
 
 		if (signal?.aborted) return null;
 

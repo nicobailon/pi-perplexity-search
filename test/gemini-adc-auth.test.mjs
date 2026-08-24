@@ -132,8 +132,7 @@ test("Gemini ADC availability requires geminiAuth adc, project, location, and an
 	assert.equal(avail.apiAvail, true);
 });
 
-test("Gemini ADC never leaks the access token in errors", async () => {
-	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-redact-"));
+test("Gemini ADC never leaks the access token in errors", async () => {	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-redact-"));
 	await writeAdc(root);
 	await writeFile(
 		join(root, "web-search.json"),
@@ -163,4 +162,90 @@ test("Gemini ADC never leaks the access token in errors", async () => {
 	const output = JSON.parse(child.stdout.trim());
 	assert.ok(output.threw, "expected an error");
 	assert.equal(output.leak, false, "access token must not leak in error messages");
+});
+
+test("Gemini ADC token exchange rejection is a CredentialResolutionError; 5xx stays transient", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-classify-"));
+	await writeAdc(root);
+
+	// A 400 from the OAuth endpoint is a credential rejection, not a transient failure.
+	const rejected = runChild(`
+		globalThis.fetch = async () => {
+			return new Response(JSON.stringify({ error: "invalid_grant", error_description: "Token has been expired or revoked." }), { status: 400 });
+		};
+		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
+		let threw = null;
+		try {
+			await adc.getAdcAccessToken();
+		} catch (err) {
+			threw = { name: err.name, message: err.message, category: err.category };
+		}
+		console.log(JSON.stringify({ threw }));
+	`, { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: join(root, "adc.json") });
+	assert.equal(rejected.status, 0, rejected.stderr);
+	const rejectedOut = JSON.parse(rejected.stdout.trim());
+	assert.equal(rejectedOut.threw.name, "CredentialResolutionError");
+	assert.equal(rejectedOut.threw.category, "oauth-credential-rejected");
+	assert.match(rejectedOut.threw.message, /OAuth token exchange rejected/);
+
+	// A 500 from the OAuth endpoint is transient: propagate as a plain error so
+	// per-provider fallbacks (Gemini Web, local PDF) can still run.
+	const upstream = runChild(`
+		globalThis.fetch = async () => new Response("upstream boom", { status: 500 });
+		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
+		let threw = null;
+		try {
+			await adc.getAdcAccessToken();
+		} catch (err) {
+			threw = { name: err.name, message: err.message, category: err.category };
+		}
+		console.log(JSON.stringify({ threw }));
+	`, { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: join(root, "adc.json") });
+	assert.equal(upstream.status, 0, upstream.stderr);
+	const upstreamOut = JSON.parse(upstream.stdout.trim());
+	assert.equal(upstreamOut.threw.name, "Error");
+	assert.match(upstreamOut.threw.message, /token exchange failed \(500\)/);
+});
+
+test("Gemini ADC does not advertise the Files-API (YouTube/video) path", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-video-"));
+	await writeAdc(root);
+	await writeFile(
+		join(root, "web-search.json"),
+		JSON.stringify({ geminiAuth: "adc", geminiProject: "p", geminiLocation: "l" }) + "\n",
+		"utf8",
+	);
+
+	// ADC only: generate-content paths are available, the Files-API path is not.
+	const adcOnly = runChild(`
+		const api = await import(${JSON.stringify(geminiApiModuleUrl)});
+		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
+		console.log(JSON.stringify({
+			adcAvail: adc.isGeminiAdcAvailable(),
+			apiAvail: api.isGeminiApiAvailable(),
+			videoAvail: api.isGeminiApiAvailableWithVideo(),
+		}));
+	`, { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: join(root, "adc.json") });
+	assert.equal(adcOnly.status, 0, adcOnly.stderr);
+	assert.deepEqual(JSON.parse(adcOnly.stdout.trim()), {
+		adcAvail: true,
+		apiAvail: true,
+		videoAvail: false,
+	});
+
+	// ADC + API key: the Files-API path becomes available again.
+	await writeFile(
+		join(root, "web-search.json"),
+		JSON.stringify({ geminiAuth: "adc", geminiProject: "p", geminiLocation: "l", geminiApiKey: "synthetic-key" }) + "\n",
+		"utf8",
+	);
+	const withKey = runChild(`
+		const api = await import(${JSON.stringify(geminiApiModuleUrl)});
+		console.log(JSON.stringify({
+			apiAvail: api.isGeminiApiAvailable(),
+			videoAvail: api.isGeminiApiAvailableWithVideo(),
+		}));
+	`, { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: join(root, "adc.json") });
+	assert.equal(withKey.status, 0, withKey.stderr);
+	assert.deepEqual(JSON.parse(withKey.stdout.trim()), { apiAvail: true, videoAvail: true });
 });
