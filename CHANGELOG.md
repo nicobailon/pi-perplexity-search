@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - XCrawl explicit-only search provider (`provider: "xcrawl"`) with `xcrawlApiKey` / `XCRAWL_API_KEY` credentials, built on the `/v1/serp` Google Search endpoint, client-side domainFilter application, null-title fallback to result URL, and provider-timeout errors that stay retriable. Thanks to [@zeroicey](https://github.com/zeroicey) for #312 and #313.
 
+### Changed
+
+- Cleaned the unreleased XCrawl provider docs, parser shape, provider availability types, and focused tests.
+
 ## [0.25.0] - 2026-08-25
 
 ### Highlights

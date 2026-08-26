@@ -15,7 +15,6 @@ interface WebSearchConfig {
 }
 
 interface XCrawlSerpResult {
-	position?: unknown;
 	title?: unknown;
 	link?: unknown;
 	snippet?: unknown;
@@ -24,8 +23,6 @@ interface XCrawlSerpResult {
 interface XCrawlSerpResponse {
 	search_metadata?: unknown;
 	organic_results?: unknown;
-	message?: unknown;
-	error?: unknown;
 }
 
 let cachedConfig: WebSearchConfig | null = null;
@@ -71,6 +68,11 @@ function errorMessage(err: unknown): string {
 
 function invalidResponse(message: string): Error {
 	return new Error(`XCrawl API returned invalid response: ${message}`);
+}
+
+function normalizeCount(value: number | undefined): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return 5;
+	return Math.max(1, Math.min(Math.floor(value), 20));
 }
 
 function hostnameOf(url: string): string {
@@ -120,11 +122,7 @@ function applyDomainFilter(results: SearchResponse["results"], domainFilter: Non
 	});
 }
 
-interface ParsedEnvelope {
-	results: SearchResponse["results"];
-}
-
-function parseResponse(value: unknown): ParsedEnvelope {
+function parseResponse(value: unknown): SearchResponse["results"] {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
 		throw invalidResponse("expected an object envelope");
 	}
@@ -137,7 +135,6 @@ function parseResponse(value: unknown): ParsedEnvelope {
 	if (status !== undefined && status !== "completed") {
 		throw invalidResponse(`expected search_metadata.status \"completed\", got ${JSON.stringify(status)}`);
 	}
-	if (envelope.organic_results === undefined) return { results: [] };
 	if (!Array.isArray(envelope.organic_results)) throw invalidResponse("expected organic_results array");
 
 	const results: SearchResponse["results"] = [];
@@ -161,7 +158,7 @@ function parseResponse(value: unknown): ParsedEnvelope {
 		});
 	}
 
-	return { results };
+	return results;
 }
 
 function buildAnswer(results: SearchResponse["results"]): string {
@@ -174,9 +171,7 @@ function buildAnswer(results: SearchResponse["results"]): string {
 
 export async function searchWithXCrawl(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
 	const apiKey = await getApiKey(options.signal);
-	const numResults = typeof options.numResults === "number" && Number.isFinite(options.numResults)
-		? Math.max(1, Math.min(Math.floor(options.numResults), 20))
-		: 5;
+	const numResults = normalizeCount(options.numResults);
 	if (!apiKey) {
 		throw new Error(
 			"XCrawl search requires an API key. Set xcrawlApiKey in " + CONFIG_PATH +
@@ -245,7 +240,7 @@ export async function searchWithXCrawl(query: string, options: SearchOptions = {
 	} catch (err) {
 		throw invalidResponse(`response body is not valid JSON: ${errorMessage(err)}`);
 	}
-	const { results } = parseResponse(payload);
+	const results = parseResponse(payload);
 	const filtered = (options.domainFilter?.length ? applyDomainFilter(results, options.domainFilter) : results).slice(0, numResults);
 
 	return {

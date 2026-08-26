@@ -1,5 +1,6 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { generateCuratorPage } from "./curator-page.ts";
+import type { ProviderAvailability } from "./gemini-search.ts";
 import type { SummaryMeta } from "./summary-review.ts";
 import { resolveCuratorNetworkConfig } from "./utils.ts";
 
@@ -18,7 +19,7 @@ export interface CuratorServerOptions {
 	queries: string[];
 	sessionToken: string;
 	timeout: number;
-	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; kimi: boolean; anysearch: boolean; xcrawl: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean };
+	availableProviders: ProviderAvailability;
 	defaultProvider: string;
 	searchProvider: string;
 	summaryModels: Array<{ value: string; label: string }>;

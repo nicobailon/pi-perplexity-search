@@ -45,6 +45,7 @@ export const SEARCH_PROVIDERS = ["auto", "all", ...RESOLVED_SEARCH_PROVIDERS] as
 export type ResolvedSearchProvider = typeof RESOLVED_SEARCH_PROVIDERS[number];
 export type SearchProvider = typeof SEARCH_PROVIDERS[number];
 export type SearchProviderSelection = SearchProvider | ResolvedSearchProvider[];
+export type ProviderAvailability = { all: boolean } & Record<ResolvedSearchProvider, boolean>;
 export type SearchProviderErrorKind =
 	| "transient"
 	| "quota"
@@ -105,7 +106,7 @@ const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
 // Explicit-only providers (Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, xAI, Bright Data, SerpBase, Serper, Valyu) are deliberately absent:
 // `all` must never fan out to an opt-in or paid provider without the user asking for it.
-const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "ollama", "perplexity", "gemini", "bocha"];
+export const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "ollama", "perplexity", "gemini", "bocha"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network", "invalid-response", "unsupported"] as const;
 
 type SearchConfig = {

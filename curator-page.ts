@@ -1,3 +1,5 @@
+import type { ProviderAvailability } from "./gemini-search.ts";
+
 function safeInlineJSON(data: unknown): string {
 	return JSON.stringify(data)
 		.replace(/</g, "\\u003c")
@@ -8,7 +10,7 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; kimi: boolean; anysearch: boolean; xcrawl: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
+	available: ProviderAvailability,
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
@@ -60,7 +62,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; kimi: boolean; anysearch: boolean; xcrawl: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
+	availableProviders: ProviderAvailability,
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,

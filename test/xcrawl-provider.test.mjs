@@ -160,47 +160,119 @@ test("XCrawl surfaces documented API errors without leaking the key", async () =
 test("XCrawl rejects unexpected envelope shapes instead of returning empty answers silently", async () => {
 	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
 	const child = runChild(`
-		globalThis.fetch = async () => new Response(JSON.stringify({ search_metadata: { status: "failed" } }), { status: 200 });
+		const responses = [
+			{ search_metadata: { status: "failed" } },
+			{ search_metadata: { status: "completed" } },
+		];
+		globalThis.fetch = async () => new Response(JSON.stringify(responses.shift()), { status: 200 });
 		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
+		const messages = [];
+		for (const query of ["bad status", "missing results"]) {
+			try {
+				await searchWithXCrawl(query);
+				messages.push("unexpected success");
+			} catch (err) {
+				messages.push(String(err.message));
+			}
+		}
+		console.log(JSON.stringify(messages));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const messages = JSON.parse(child.stdout.trim());
+	assert.equal(messages.length, 2);
+	assert.match(messages[0], /invalid response/);
+	assert.match(messages[1], /expected organic_results array/);
+});
+
+test("configured routing falls back when XCrawl hits its provider timeout", async () => {
+	const home = await createHome({
+		xcrawlApiKey: "xc-test-key",
+		braveApiKey: "brave-test-key",
+		searchRouting: { providers: ["xcrawl", "brave"], fallbackOn: ["network"] },
+	});
+	const child = runChild(`
+		const calls = [];
+		globalThis.fetch = async (url) => {
+			const target = String(url);
+			calls.push(target);
+			if (target === "https://run.xcrawl.com/v1/serp") {
+				const error = new Error("The operation was aborted due to timeout");
+				error.name = "TimeoutError";
+				throw error;
+			}
+			if (target.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+				return new Response(JSON.stringify({ web: { results: [{ title: "Brave", url: "https://example.com/brave", description: "fallback" }] } }), { status: 200 });
+			}
+			throw new Error("unexpected fetch " + target);
+		};
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("timeout route", { provider: "auto" });
+		console.log(JSON.stringify({ provider: result.provider, calls }));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.provider, "brave");
+	assert.equal(output.calls[0], "https://run.xcrawl.com/v1/serp");
+	assert.ok(output.calls[1].startsWith("https://api.search.brave.com/res/v1/web/search"));
+});
+
+test("XCrawl is never part of auto fallback, even with credentials", async () => {
+	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
+	const child = runChild(`
+		const calls = [];
+		globalThis.fetch = async (url) => { calls.push(String(url)); throw new Error("unexpected auto provider"); };
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
 		try {
-			await searchWithXCrawl("shape");
-			console.log(JSON.stringify({ failed: false }));
+			await search("auto", { provider: "auto" });
+			console.log(JSON.stringify({ ok: true, calls }));
 		} catch (err) {
-			console.log(JSON.stringify({ failed: true, message: String(err.message) }));
+			console.log(JSON.stringify({ ok: false, calls }));
 		}
 	`, { PI_CODING_AGENT_DIR: home });
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.equal(output.failed, true);
-	assert.match(output.message, /invalid response/);
+	assert.equal(output.ok, false);
+	assert.ok(output.calls.every((url) => !url.startsWith("https://run.xcrawl.com/")));
+});
+
+test('provider "all" does not fan out to XCrawl', async () => {
+	const home = await createHome({ xcrawlApiKey: "xc-test-key", braveApiKey: "brave-test-key" });
+	const child = runChild(`
+		const calls = [];
+		globalThis.fetch = async (url) => {
+			calls.push(String(url));
+			if (String(url).startsWith("https://run.xcrawl.com/")) throw new Error("XCrawl must not be part of all");
+			return new Response(JSON.stringify({ web: { results: [{ title: "Brave", url: "https://example.com/brave", description: "ok" }] } }), { status: 200 });
+		};
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("fan out", { provider: "all" });
+		console.log(JSON.stringify({ provider: result.provider, calls }));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.provider, "all");
+	assert.ok(output.calls.every((url) => !url.startsWith("https://run.xcrawl.com/")));
 });
 
 test("XCrawl provider timeout is a retriable failure, not caller cancellation", async () => {
 	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
 	const child = runChild(`
 		globalThis.fetch = async () => {
-			// Simulate the provider-side AbortSignal.timeout firing.
 			const e = new Error("The operation was aborted due to timeout");
 			e.name = "TimeoutError";
 			throw e;
 		};
-		const { classifyProviderError } = await import(${JSON.stringify(new URL("../gemini-search.ts", import.meta.url).href)}).catch(() => ({}));
 		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
 		try {
 			await searchWithXCrawl("slow");
 			console.log(JSON.stringify({ failed: false }));
 		} catch (err) {
-			let kind = "";
-			try {
-				const { SearchProviderError } = await import(${JSON.stringify(xcrawlModuleUrl)}).then(() => ({}));
-			} catch {}
 			console.log(JSON.stringify({ failed: true, message: String(err.message), name: err.name }));
 		}
 	`, { PI_CODING_AGENT_DIR: home });
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
 	assert.equal(output.failed, true);
-	// Must read as a timeout, not carry the "abort" marker that routing treats as cancellation.
 	assert.match(output.message, /timed out after 60s/);
 	assert.ok(!/abort/i.test(output.message));
 });
