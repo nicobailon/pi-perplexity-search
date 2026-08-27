@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 
 - Cleaned the unreleased XCrawl provider docs, parser shape, provider availability types, and focused tests.
 
+### Fixed
+
+- Kept Defuddle selector-processing failures out of the Pi console and stopped treating the raw page body as a successful extraction. Thanks to [@riabiy](https://github.com/riabiy) for #315.
+
 ## [0.25.0] - 2026-08-25
 
 ### Highlights

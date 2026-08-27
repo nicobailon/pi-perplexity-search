@@ -43,10 +43,40 @@ type FetchRouting = { providers: FetchProvider[]; allowRemoteHostedProviders: bo
 const DEFAULT_FETCH_PROVIDER_ORDER: FetchProvider[] = ["http", "firecrawl", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "brightdata", "gemini"];
 const REMOTE_HOSTED_FETCH_PROVIDERS = new Set<FetchProvider>(["jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "parallel-mcp", "brightdata", "gemini"]);
 
+function isDefuddleConsoleError(args: Parameters<typeof console.error>): boolean {
+	const prefix = args[0];
+	return prefix === "Defuddle" || (typeof prefix === "string" && /^Defuddle(?:\s|:)/.test(prefix));
+}
+
 async function extractWithDefuddle(text: string, url: string): Promise<{ title: string; content: string } | null> {
 	const { Defuddle } = await import("defuddle/node");
 	const { document } = parseHTML(text);
-	const result = await Defuddle(document as unknown as Document, url, { markdown: true, useAsync: false });
+	let processingError: unknown;
+	const originalConsoleError = console.error;
+	console.error = (...args) => {
+		if (isDefuddleConsoleError(args)) {
+			if (args[0] === "Defuddle" && args[1] === "Error processing document:") {
+				processingError = args[2];
+			}
+			return;
+		}
+		originalConsoleError(...args);
+	};
+
+	let resultPromise: ReturnType<typeof Defuddle>;
+	try {
+		// With useAsync:false, Defuddle parses synchronously before returning its promise.
+		// Keep the console interception limited to that call so unrelated Pi output is
+		// never routed through this fallback's handler.
+		resultPromise = Defuddle(document as unknown as Document, url, { markdown: true, useAsync: false });
+	} finally {
+		console.error = originalConsoleError;
+	}
+
+	const result = await resultPromise;
+	if (processingError !== undefined) {
+		throw new Error(`Defuddle failed to process document: ${errorMessage(processingError)}`);
+	}
 	return typeof result.content === "string" ? { title: result.title, content: result.content } : null;
 }
 

@@ -71,6 +71,28 @@ test("short Readability output falls back to useful Defuddle content", async (t)
 	assert.match(result.content, /Useful Defuddle content after the short Readability article/);
 });
 
+test("Defuddle processing failures stay contained and do not return the fallback body", async (t) => {
+	const originalConsoleError = console.error;
+	t.after(() => {
+		globalThis.fetch = originalFetch;
+		console.error = originalConsoleError;
+	});
+	const paragraph = "This is substantial article text that should be extracted as the page's main content. ";
+	const html = `<!doctype html><html><head><title>Defuddle selector failure</title></head><body><nav><a href="/">Home</a></nav><template id="B:0"></template><div hidden id="S:a"><h1>Defuddle selector failure</h1><p>${paragraph.repeat(20)}</p></div><template id="P:a"></template><footer><p>Copyright 2026 Example Inc. All rights reserved.</p></footer></body></html>`;
+	globalThis.fetch = async () => new Response(html, {
+		status: 200,
+		headers: { "content-type": "text/html" },
+	});
+
+	const consoleErrors = [];
+	console.error = (...args) => { consoleErrors.push(args); };
+	const result = await extractContent("https://example.com/defuddle-selector-failure", undefined, { lookup });
+
+	assert.equal(consoleErrors.length, 0);
+	assert.match(result.error, /Defuddle failed to process document: Unknown pseudo-class :a/);
+	assert.doesNotMatch(result.content, /Copyright 2026/);
+});
+
 test("short non-RSC pages remain incomplete", async (t) => {
 	t.after(() => { globalThis.fetch = originalFetch; });
 	globalThis.fetch = async () => new Response(
