@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added opt-in `fetch.timeout` configuration in seconds for the direct HTTP and Jina Reader `fetch_content` paths, with per-call timeout overrides taking precedence. Thanks to [@linuxtextadventurer](https://github.com/linuxtextadventurer) for PR #327.
+
 ### Fixed
 
 - Set the Defuddle fallback document URL before parsing pages with relative canonical links, preventing `ERR_INVALID_URL` warnings. Thanks to [@bin115885](https://github.com/bin115885) for issue #322.

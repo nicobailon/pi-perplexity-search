@@ -31,12 +31,45 @@ import { getBrowserCookiesForHosts, getLastBrowserCookieDiagnostic } from "./chr
 import { sanitizeInlineDataUris } from "./data-uri-sanitize.ts";
 
 const DEFAULT_TIMEOUT_MS = 30000;
+const MAX_CONFIGURED_TIMEOUT_MS = 2_147_483_647;
 const CONCURRENT_LIMIT = 3;
+const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
+
+function loadFetchTimeoutMs(): number {
+	if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return DEFAULT_TIMEOUT_MS;
+
+	let raw: unknown;
+	try {
+		raw = JSON.parse(readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8"));
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse ${WEB_SEARCH_CONFIG_PATH}: ${message}`);
+	}
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+		throw new Error(`Invalid config in ${WEB_SEARCH_CONFIG_PATH}: expected a JSON object`);
+	}
+
+	const fetchConfig = (raw as Record<string, unknown>).fetch;
+	if (fetchConfig === undefined) return DEFAULT_TIMEOUT_MS;
+	if (!fetchConfig || typeof fetchConfig !== "object" || Array.isArray(fetchConfig)) {
+		throw new Error(`fetch in ${WEB_SEARCH_CONFIG_PATH} must be an object`);
+	}
+
+	const value = (fetchConfig as Record<string, unknown>).timeout;
+	if (value === undefined) return DEFAULT_TIMEOUT_MS;
+	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+		throw new Error(`Invalid fetch.timeout in ${WEB_SEARCH_CONFIG_PATH}: expected a positive finite number of seconds, got ${JSON.stringify(value)}`);
+	}
+	const timeoutMs = Math.ceil(value * 1000);
+	if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_CONFIGURED_TIMEOUT_MS) {
+		throw new Error(`Invalid fetch.timeout in ${WEB_SEARCH_CONFIG_PATH}: converted timeout must be a finite safe integer from 1 through ${MAX_CONFIGURED_TIMEOUT_MS} milliseconds`);
+	}
+	return Math.max(1, timeoutMs);
+}
 
 const NON_RECOVERABLE_ERRORS = ["Unsupported content type", "Response too large", "PDF extraction is disabled", "Image fetching is disabled"];
 const MIN_USEFUL_CONTENT = 500;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
 const FETCH_PROVIDERS = ["http", "firecrawl", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "parallel-mcp", "brightdata", "gemini"] as const;
 type FetchProvider = typeof FETCH_PROVIDERS[number];
 type FetchRouting = { providers: FetchProvider[]; allowRemoteHostedProviders: boolean };
@@ -302,11 +335,16 @@ export interface ExtractOptions {
 	lookup?: Lookup;
 }
 
+/** Resolve the direct HTTP/Jina fetch budget, with a per-call override taking precedence. */
+export function resolveFetchTimeoutMs(options?: Pick<ExtractOptions, "timeoutMs">): number {
+	return options?.timeoutMs ?? loadFetchTimeoutMs();
+}
+
 const JINA_READER_BASE = "https://r.jina.ai/";
-const JINA_TIMEOUT_MS = 30000;
 
 async function extractWithJinaReader(
 	url: string,
+	timeoutMs: number,
 	signal?: AbortSignal,
 	lookup?: Lookup,
 ): Promise<ExtractedContent | null> {
@@ -329,7 +367,7 @@ async function extractWithJinaReader(
 				"X-No-Cache": "true",
 			},
 			signal: AbortSignal.any([
-				AbortSignal.timeout(JINA_TIMEOUT_MS),
+				AbortSignal.timeout(timeoutMs),
 				...(signal ? [signal] : []),
 			]),
 		});
@@ -484,16 +522,12 @@ export async function extractContent(
 		}
 	}
 
-	if (options?.authFetchProfile) {
+	if (options?.authFetchProfile || options?.mode === "raw") {
 		try {
-			return await extractViaHttp(url, signal, options);
+			return await extractViaHttp(url, resolveFetchTimeoutMs(options), signal, options);
 		} catch (err) {
 			return { url, title: "", content: "", error: errorMessage(err) };
 		}
-	}
-
-	if (options?.mode === "raw") {
-		return extractViaHttp(url, signal, options);
 	}
 
 	if (options?.frames || options?.timestamp) {
@@ -707,6 +741,13 @@ export async function extractContent(
 
 	if (signal?.aborted) return abortedResult(url);
 
+	let fetchTimeoutMs: number;
+	try {
+		fetchTimeoutMs = resolveFetchTimeoutMs(options);
+	} catch (err) {
+		return { url, title: "", content: "", error: errorMessage(err) };
+	}
+
 	let fetchRouting: FetchRouting;
 	try {
 		fetchRouting = loadFetchRouting();
@@ -735,7 +776,7 @@ export async function extractContent(
 		? { ...httpResult, error: message }
 		: { url, title: "", content: "", error: message };
 	const runHttpProvider = async (): Promise<ExtractedContent | null> => {
-		const { declaredLinks: discoveredLinks = [], ...result } = await extractViaHttp(url, signal, options);
+		const { declaredLinks: discoveredLinks = [], ...result } = await extractViaHttp(url, fetchTimeoutMs, signal, options);
 		httpResult = result;
 		declaredLinks = discoveredLinks;
 		if (signal?.aborted) return abortedResult(url);
@@ -790,7 +831,7 @@ export async function extractContent(
 		}
 
 		if (provider === "jina") {
-			const jinaResult = await extractWithJinaReader(url, signal, options?.lookup);
+			const jinaResult = await extractWithJinaReader(url, fetchTimeoutMs, signal, options?.lookup);
 			if (jinaResult) return withDeclaredLinks(jinaResult);
 			continue;
 		}
@@ -1070,10 +1111,10 @@ function responseSizeLimitError(maxBytes: number): Error {
 
 async function extractViaHttp(
 	url: string,
+	timeoutMs: number,
 	signal?: AbortSignal,
 	options?: ExtractOptions,
 ): Promise<HttpExtractedContent> {
-	const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const activityId = activityMonitor.logStart({ type: "fetch", url });
 
 	const controller = new AbortController();
