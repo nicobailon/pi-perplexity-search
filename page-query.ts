@@ -1,6 +1,8 @@
 import { complete, type Api, type Message, type Model } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { existsSync, readFileSync } from "node:fs";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
+import { getWebSearchConfigPath } from "./utils.ts";
 
 const OUTPUT_TOKENS = 2_000;
 const INPUT_CONTEXT_FRACTION = 0.6;
@@ -16,22 +18,54 @@ export interface PageAnswer {
 	truncated: boolean;
 }
 
-function parseModelSelector(value: string): { provider: string; id: string } {
+// fallback chain answerModel param, fetch.answerProvider + fetch.answerModel in web-search.json, current session model
+// partial config (exactly one of the two keys) throws, lost on pi update --extensions reinstall
+function loadAnswerModel(): { provider: string; id: string } | undefined {
+	const configPath = getWebSearchConfigPath();
+	if (!existsSync(configPath)) return undefined;
+	let raw: unknown;
+	try {
+		raw = JSON.parse(readFileSync(configPath, "utf-8"));
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse ${configPath}: ${message}`);
+	}
+	const fetchConfig = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>).fetch : undefined;
+	if (!fetchConfig || typeof fetchConfig !== "object" || Array.isArray(fetchConfig)) return undefined;
+	const provider = (fetchConfig as Record<string, unknown>).answerProvider;
+	const model = (fetchConfig as Record<string, unknown>).answerModel;
+	const hasProvider = typeof provider === "string" && provider.trim().length > 0;
+	const hasModel = typeof model === "string" && model.trim().length > 0;
+	if (!hasProvider && !hasModel) return undefined;
+	if (!hasProvider || !hasModel) {
+		throw new Error(`Set both fetch.answerProvider and fetch.answerModel together in ${configPath}. Use "provider" and "model" strings.`);
+	}
+	return { provider: (provider as string).trim(), id: (model as string).trim() };
+}
+
+function parseModelSelector(value: string, source: string): { provider: string; id: string } {
 	const separator = value.indexOf("/");
 	if (separator <= 0 || separator === value.length - 1) {
-		throw new Error(`Invalid answerModel: ${value}. Use provider/model-id.`);
+		throw new Error(`Invalid ${source} '${value}'. Use provider/model-id.`);
 	}
 	return { provider: value.slice(0, separator), id: value.slice(separator + 1) };
 }
 
-function resolveModel(ctx: ExtensionContext, override?: string): Model<Api> {
-	const model = override
-		? (() => {
-			const selector = parseModelSelector(override);
-			return ctx.modelRegistry.find(selector.provider, selector.id);
-		})()
-		: ctx.model;
-	if (!model) throw new Error(override ? `Answer model not found: ${override}` : "No current model available for page answering");
+function resolveModel(ctx: ExtensionContext, override?: string, defaultModel?: { provider: string; id: string }): Model<Api> {
+	const source = override ? "answerModel" : `fetch.answerProvider/fetch.answerModel in ${getWebSearchConfigPath()}`;
+	const parsed = override ? parseModelSelector(override, source) : undefined;
+	const model = parsed
+		? ctx.modelRegistry.find(parsed.provider, parsed.id)
+		: defaultModel
+			? ctx.modelRegistry.find(defaultModel.provider, defaultModel.id)
+			: ctx.model;
+	if (!model) {
+		if (override || defaultModel) {
+			const name = override ? `${parsed!.provider}/${parsed!.id}` : `${defaultModel!.provider}/${defaultModel!.id}`;
+			throw new Error(`Answer model not found: ${name} (from ${source})`);
+		}
+		throw new Error(`No current model available for page answering, set fetch.answerProvider and fetch.answerModel in ${getWebSearchConfigPath()}`);
+	}
 	if (!model.input.includes("text")) throw new Error(`Answer model does not support text input: ${model.provider}/${model.id}`);
 	if (!modelMatchesEnabledPatterns(model, loadEnabledModelPatterns(ctx))) {
 		throw new Error(`Answer model is not enabled: ${model.provider}/${model.id}`);
@@ -53,7 +87,7 @@ export async function answerFromPage(
 	ctx: ExtensionContext,
 	signal?: AbortSignal,
 ): Promise<PageAnswer> {
-	const model = resolveModel(ctx, input.model);
+	const model = resolveModel(ctx, input.model, loadAnswerModel());
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (!auth.ok || !auth.apiKey) throw new Error(`No API key available for answer model ${model.provider}/${model.id}`);
 	const registry = ctx.modelRegistry as typeof ctx.modelRegistry & { complete?: typeof complete };
