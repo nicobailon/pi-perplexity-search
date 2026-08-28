@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Added opt-in `fetch.timeout` configuration in seconds for the direct HTTP and Jina Reader `fetch_content` paths, with per-call timeout overrides taking precedence. Thanks to [@linuxtextadventurer](https://github.com/linuxtextadventurer) for PR #327.
+- Added opt-in `fetch.answerProvider` and `fetch.answerModel` defaults for `fetch_content` answer mode, with per-call `answerModel` overrides taking precedence. Thanks to [@linuxtextadventurer](https://github.com/linuxtextadventurer) for PR #328.
 
 ### Fixed
 

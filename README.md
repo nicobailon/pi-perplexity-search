@@ -159,10 +159,14 @@ fetch_content({ url: "https://example.com/diagram.png" })
 | `url` / `urls` | Single URL/path or multiple URLs |
 | `prompt` | Question for video analysis, or the page-local question required by `mode: "answer"` |
 | `mode` | `readable` (default), `raw` for exact textual HTTP bodies, or `answer` for a grounded answer from fetched content |
-| `answerModel` | Optional `provider/model-id` override for answer mode; defaults to the current enabled Pi model |
+| `answerModel` | Optional `provider/model-id` override for answer mode; defaults to the configured `fetch.answerProvider` + `fetch.answerModel` pair, or the current enabled Pi model when no pair is configured |
 | `timestamp` | Extract frame(s) — single (`"23:41"`), range (`"23:41-25:00"`), or seconds (`"85"`) |
 | `frames` | Number of frames to extract (max 12) |
 | `forceClone` | Clone GitHub repos that exceed the 350MB size threshold |
+
+For a standing answer-mode model, set both `fetch.answerProvider` and `fetch.answerModel` in `web-search.json`; a per-call `answerModel` takes precedence. Configured answer defaults are opt-in and can send fetched page text to a different provider/model, which may change privacy and cost behavior.
+
+Thanks to [@linuxtextadventurer](https://github.com/linuxtextadventurer) for PR #328.
 
 ### get_search_content
 
@@ -404,7 +408,9 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
     "allowRemoteHostedProviders": false
   },
   "fetch": {
-    "timeout": 30
+    "timeout": 30,
+    "answerProvider": "openai",
+    "answerModel": "gpt-5.6"
   },
   "webSearch": {
     "enabled": true
@@ -506,6 +512,8 @@ Set `braveBaseUrl`, `exaBaseUrl`, or `tavilyBaseUrl` to route those providers th
 `fetchContent.domainPolicy` is an optional hostname allow/deny policy for `fetch_content` target URLs. It is off when omitted. Each bare hostname matches itself and its subdomains; `deny` wins when a hostname matches both lists. The policy is checked before HTTP(S) target handling and before each redirect followed by this extension's own fetch path. Local file paths and non-HTTP sources are not subject to this policy. It is an additional restriction: the existing SSRF guard still blocks private and internal destinations. Remote extraction services can still perform their own DNS, redirects, and egress after this extension preflights the submitted target URL, so third-party hosted HTTP(S) fallbacks stay disabled unless `fetchRouting.allowRemoteHostedProviders` is enabled for separately isolated provider deployments.
 
 `fetch.timeout` is an optional positive finite number of seconds for direct HTTP fetches and the Jina Reader fallback. When omitted, both use a 30-second budget. Fractional values are supported and rounded up to at least 1 millisecond; values that cannot be converted to a finite safe integer delay from 1 through Node's 2,147,483,647 ms timer maximum are rejected. An invalid declared value fails closed with an error naming `web-search.json`. An internal/per-call `timeoutMs` override takes precedence over this setting. Other remote extraction fallbacks keep their own documented budgets.
+
+`fetch.answerProvider` and `fetch.answerModel` are an optional pair that selects the model used by `fetch_content` answer mode when no per-call `answerModel` is supplied. Both values must be non-empty strings and must identify an enabled text-capable model available in Pi's model registry; invalid or partial configuration fails closed. This is opt-in: answering with the configured provider/model can send fetched page text outside the current session and may incur that provider's costs. A per-call `answerModel` override is resolved first and remains usable even when these configured defaults are malformed.
 
 Set `searxngBaseUrl` or `SEARXNG_BASE_URL` to use a self-hosted SearXNG JSON API. A configured endpoint is preferred first in `auto` mode for local/private search. Its base URL and redirects remain subject to the SSRF guard; add only the narrowest self-hosted range to `ssrf.allowRanges` when it resolves to a private or synthetic range. Optional `searxngHeaders` merges extra HTTP headers into each SearXNG request (string values only; invalid header names are ignored), which is useful for reverse-proxy or Zero Trust auth such as Cloudflare Access service tokens (`CF-Access-Client-Id` / `CF-Access-Client-Secret`). Configured headers override the default `Accept: application/json` when the same name is supplied. Thanks to Marcos A. Núñez (@marnunez) for PR #107 and Avinash Kanaujiya (@avinashkanaujiya) for issue #105.
 

@@ -2443,7 +2443,7 @@ export default function (pi: ExtensionAPI) {
 				description: "Fetch mode: readable (default extraction), raw (exact textual HTTP body), or answer (answer prompt using only fetched content).",
 			})),
 			answerModel: Type.Optional(Type.String({
-				description: "Optional provider/model-id override for mode answer. Defaults to the current Pi model.",
+				description: "Optional provider/model-id override for mode answer. Defaults to fetch.answerProvider + fetch.answerModel when configured, otherwise the current Pi model.",
 			})),
 			timestamp: Type.Optional(Type.String({
 				description: "Extract video frame(s) at a timestamp or time range. Single: '1:23:45', '23:45', or '85' (seconds). Range: '23:41-25:00' extracts evenly-spaced frames across that span (default 6). Use frames with ranges to control density; single+frames uses a fixed 5s interval. YouTube requires yt-dlp + ffmpeg; local videos require ffmpeg. Use a range when you know the approximate area but not the exact moment — you'll get a contact sheet to visually identify the right frame.",
