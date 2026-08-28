@@ -33,6 +33,28 @@ import { sanitizeInlineDataUris } from "./data-uri-sanitize.ts";
 const DEFAULT_TIMEOUT_MS = 30000;
 const CONCURRENT_LIMIT = 3;
 
+// fetch.timeout in web-search.json extends the page fetch budget in seconds, shared by the http and jina fallback paths
+// tool-layer timeoutMs option still wins over the knob, lost on pi update --extensions reinstall
+function loadTimeoutMs(): number {
+	const configPath = WEB_SEARCH_CONFIG_PATH;
+	if (!existsSync(configPath)) return DEFAULT_TIMEOUT_MS;
+	let raw: unknown;
+	try {
+		raw = JSON.parse(readFileSync(configPath, "utf-8"));
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse ${configPath}: ${message}`);
+	}
+	const fetchConfig = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>).fetch : undefined;
+	if (!fetchConfig || typeof fetchConfig !== "object" || Array.isArray(fetchConfig)) return DEFAULT_TIMEOUT_MS;
+	const value = (fetchConfig as Record<string, unknown>).timeout;
+	if (value === undefined) return DEFAULT_TIMEOUT_MS;
+	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+		throw new Error(`Invalid fetch.timeout ${JSON.stringify(value)} in ${configPath}. Use a positive number of seconds.`);
+	}
+	return Math.floor(value * 1000);
+}
+
 const NON_RECOVERABLE_ERRORS = ["Unsupported content type", "Response too large", "PDF extraction is disabled", "Image fetching is disabled"];
 const MIN_USEFUL_CONTENT = 500;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
@@ -303,7 +325,6 @@ export interface ExtractOptions {
 }
 
 const JINA_READER_BASE = "https://r.jina.ai/";
-const JINA_TIMEOUT_MS = 30000;
 
 async function extractWithJinaReader(
 	url: string,
@@ -329,7 +350,7 @@ async function extractWithJinaReader(
 				"X-No-Cache": "true",
 			},
 			signal: AbortSignal.any([
-				AbortSignal.timeout(JINA_TIMEOUT_MS),
+				AbortSignal.timeout(loadTimeoutMs()),
 				...(signal ? [signal] : []),
 			]),
 		});
@@ -1073,7 +1094,7 @@ async function extractViaHttp(
 	signal?: AbortSignal,
 	options?: ExtractOptions,
 ): Promise<HttpExtractedContent> {
-	const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+	const timeoutMs = options?.timeoutMs ?? loadTimeoutMs();
 	const activityId = activityMonitor.logStart({ type: "fetch", url });
 
 	const controller = new AbortController();
