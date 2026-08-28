@@ -346,6 +346,31 @@ function normalizeQueryList(queryList: unknown[]): string[] {
 	return normalized;
 }
 
+// Some local models serialize a multi-query list into the single-string `query`
+// field as a JSON array (query: "[\"a\", \"b\"]") instead of using the
+// `queries` parameter. Forwarding that raw string verbatim makes every backend
+// search for the literal array text and return zero results, with no signal to
+// the model that its argument shape was wrong. Expand a string that parses as a
+// JSON array of strings so each element is searched independently.
+function expandQueryString(query: unknown): string[] {
+	if (typeof query !== "string") return [];
+	const trimmed = query.trim();
+	if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+		try {
+			const parsed: unknown = JSON.parse(trimmed);
+			if (Array.isArray(parsed)) {
+				return parsed
+					.filter((entry): entry is string => typeof entry === "string")
+					.map((entry) => entry.trim())
+					.filter((entry) => entry.length > 0);
+			}
+		} catch {
+			// Not JSON — treat as a literal query string.
+		}
+	}
+	return [query];
+}
+
 function getCuratorTimeoutSeconds(): number {
 	const source = loadConfig();
 	const explicit = normalizeCuratorTimeoutSeconds(source.curatorTimeoutSeconds);
@@ -1749,8 +1774,8 @@ export default function (pi: ExtensionAPI) {
 		async execute(callId, params, signal, onUpdate, ctx) {
 			return runWithProxy(typeof params.proxy === "string" ? params.proxy : undefined, async () => {
 				const rawQueryList: unknown[] = Array.isArray(params.queries)
-					? params.queries
-					: (params.query !== undefined ? [params.query] : []);
+					? params.queries.flatMap(expandQueryString)
+					: (params.query !== undefined ? expandQueryString(params.query) : []);
 				const queryList = normalizeQueryList(rawQueryList);
 				const configWorkflow = loadConfigForExtensionInit().workflow;
 				const workflow = resolveWorkflow(params.workflow ?? configWorkflow, ctx?.hasUI !== false);
@@ -2045,8 +2070,8 @@ export default function (pi: ExtensionAPI) {
 		renderCall(args, theme) {
 			const input = args as { query?: unknown; queries?: unknown };
 			const rawQueryList: unknown[] = Array.isArray(input.queries)
-				? input.queries
-				: (input.query !== undefined ? [input.query] : []);
+				? input.queries.flatMap(expandQueryString)
+				: (input.query !== undefined ? expandQueryString(input.query) : []);
 			const queryList = normalizeQueryList(rawQueryList);
 			if (queryList.length === 0) {
 				return new Text(theme.fg("toolTitle", theme.bold("search ")) + theme.fg("error", "(no query)"), 0, 0);
