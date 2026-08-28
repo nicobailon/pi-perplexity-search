@@ -1,4 +1,4 @@
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { basename, dirname, extname, join, resolve as resolvePath, sep as pathSep } from "node:path";
@@ -59,6 +59,7 @@ interface GitHubCloneConfig {
 const cloneCache = new Map<string, CachedClone>();
 
 let cachedConfig: GitHubCloneConfig | null = null;
+let cloneRuntime: { parentPath: string; rootPath: string } | null = null;
 
 function normalizeEnabled(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
@@ -189,10 +190,30 @@ function cacheKey(owner: string, repo: string, ref?: string): string {
 	return ref ? `${owner}/${repo}@${ref}` : `${owner}/${repo}`;
 }
 
-function cloneDestination(config: GitHubCloneConfig, owner: string, repo: string, ref?: string): CloneDestination | null {
+function getCloneRuntimeRoot(config: GitHubCloneConfig): string | null {
+	if (cloneRuntime) return cloneRuntime.rootPath;
+
 	try {
 		mkdirSync(resolvePath(config.clonePath), { recursive: true });
-		const rootPath = realpathSync(resolvePath(config.clonePath));
+		const parentPath = realpathSync(resolvePath(config.clonePath));
+		const runtimePath = mkdtempSync(join(parentPath, "runtime-"));
+		chmodSync(runtimePath, 0o700);
+		const rootPath = realpathSync(runtimePath);
+		if (dirname(rootPath) !== parentPath) {
+			rmSync(runtimePath, { recursive: true, force: true });
+			return null;
+		}
+		cloneRuntime = { parentPath, rootPath };
+		return rootPath;
+	} catch {
+		return null;
+	}
+}
+
+function cloneDestination(config: GitHubCloneConfig, owner: string, repo: string, ref?: string): CloneDestination | null {
+	try {
+		const rootPath = getCloneRuntimeRoot(config);
+		if (!rootPath) return null;
 		const digest = createHash("sha256").update(JSON.stringify([owner, repo, ref ?? null])).digest("hex");
 		const localPath = resolvePath(rootPath, digest);
 		if (dirname(localPath) !== rootPath) return null;
@@ -742,5 +763,20 @@ export function clearCloneCache(): void {
 		removeCloneDestination(entry.destination);
 	}
 	cloneCache.clear();
+
+	if (cloneRuntime) {
+		const runtimePath = resolvePath(cloneRuntime.rootPath);
+		const parentPath = resolvePath(cloneRuntime.parentPath);
+		if (dirname(runtimePath) === parentPath && basename(runtimePath).startsWith("runtime-")) {
+			try {
+				const entry = lstatSync(runtimePath);
+				if (entry.isSymbolicLink()) unlinkSync(runtimePath);
+				else rmSync(runtimePath, { recursive: true, force: true });
+			} catch {
+				// The runtime directory may already have been removed externally.
+			}
+		}
+	}
+	cloneRuntime = null;
 	cachedConfig = null;
 }

@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
 
 const extractModuleUrl = new URL("../github-extract.ts", import.meta.url).href;
@@ -13,6 +12,62 @@ async function writeFakeExecutable(binDir, name, source) {
 	const executable = join(binDir, name);
 	await writeFile(executable, `#!/usr/bin/env node\n${source}\n`, { mode: 0o755 });
 	return executable;
+}
+
+async function writeControlledGh(binDir) {
+	return writeFakeExecutable(binDir, "gh", `
+		const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+		const { join } = require("node:path");
+		const args = process.argv.slice(2);
+		if (args[0] === "--version") process.exit(0);
+		if (args[0] !== "repo" || args[1] !== "clone") process.exit(1);
+
+		const destination = args[3];
+		mkdirSync(destination, { recursive: true });
+		writeFileSync(join(destination, "README.md"), process.env.GH_CLONE_CONTENT || "fixture");
+		if (process.env.GH_CLONE_COUNT_FILE) {
+			let count = 0;
+			try { count = Number(readFileSync(process.env.GH_CLONE_COUNT_FILE, "utf8")); } catch {}
+			writeFileSync(process.env.GH_CLONE_COUNT_FILE, String(count + 1));
+		}
+		if (process.env.GH_READY_FILE) writeFileSync(process.env.GH_READY_FILE, destination);
+
+		const finish = () => process.exit(process.env.GH_CLONE_RESULT === "fail" ? 1 : 0);
+		if (!process.env.GH_RELEASE_FILE) finish();
+		const timer = setInterval(() => {
+			if (!existsSync(process.env.GH_RELEASE_FILE)) return;
+			clearInterval(timer);
+			finish();
+		}, 10);
+	`);
+}
+
+function spawnModule(source, env) {
+	const child = spawn(process.execPath, ["--input-type=module"], {
+		stdio: ["pipe", "pipe", "pipe"],
+		env,
+	});
+	child.stdin.end(source);
+	let stdout = "";
+	let stderr = "";
+	child.stdout.setEncoding("utf8");
+	child.stderr.setEncoding("utf8");
+	child.stdout.on("data", (chunk) => { stdout += chunk; });
+	child.stderr.on("data", (chunk) => { stderr += chunk; });
+	const completed = new Promise((resolve, reject) => {
+		child.once("error", reject);
+		child.once("close", (status, signal) => resolve({ status, signal, stdout, stderr }));
+	});
+	return { child, completed };
+}
+
+async function waitForFile(path, timeoutMs = 5000) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (existsSync(path)) return;
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	throw new Error(`Timed out waiting for ${path}`);
 }
 
 function processIsAlive(pid) {
@@ -80,7 +135,7 @@ test("malformed GitHub identifiers cannot delete outside the clone cache", async
 	assert.equal(await readFile(join(victim, "marker.txt"), "utf8"), "preserve");
 });
 
-test("clearCloneCache removes only its verified clone entry", { skip: process.platform === "win32" }, async () => {
+test("clearCloneCache removes only its runtime directory", { skip: process.platform === "win32" }, async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-cleanup-"));
 	const agentDir = join(root, "agent-dir");
 	const binDir = join(root, "bin");
@@ -99,21 +154,44 @@ test("clearCloneCache removes only its verified clone entry", { skip: process.pl
 		mkdirSync(destination, { recursive: true });
 		writeFileSync(join(destination, "README.md"), "fixture");
 	`);
-	const digest = createHash("sha256").update(JSON.stringify(["owner", "repo", null])).digest("hex");
-	const localPath = join(clonePath, digest);
 
 	const child = spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
+			const { existsSync } = await import("node:fs");
+			const { dirname } = await import("node:path");
 			const { clearCloneCache, extractGitHub } = await import(${JSON.stringify(extractModuleUrl)});
-			await extractGitHub("https://github.com/owner/repo");
+			const first = await extractGitHub("https://github.com/owner/repo");
+			const firstPath = first?.content.match(/^Repository cloned to: (.+)$/m)?.[1] ?? null;
+			const firstRuntimePath = firstPath ? dirname(firstPath) : null;
+			const existedBeforeClear = firstRuntimePath ? existsSync(firstRuntimePath) : false;
 			clearCloneCache();
+			const existsAfterClear = firstRuntimePath ? existsSync(firstRuntimePath) : false;
+			const second = await extractGitHub("https://github.com/owner/repo");
+			const secondPath = second?.content.match(/^Repository cloned to: (.+)$/m)?.[1] ?? null;
+			const secondRuntimePath = secondPath ? dirname(secondPath) : null;
+			clearCloneCache();
+			console.log(JSON.stringify({
+				firstPath,
+				firstRuntimePath,
+				secondPath,
+				secondRuntimePath,
+				existedBeforeClear,
+				existsAfterClear,
+				secondExistsAfterClear: secondRuntimePath ? existsSync(secondRuntimePath) : false,
+			}));
 		`,
 		encoding: "utf8",
 		env: { ...process.env, PATH: `${binDir}${delimiter}${process.env.PATH || ""}`, PI_CODING_AGENT_DIR: agentDir },
 	});
 
 	assert.equal(child.status, 0, child.stderr);
-	assert.equal(existsSync(localPath), false);
+	const result = JSON.parse(child.stdout);
+	assert.ok(result.firstPath);
+	assert.ok(result.secondPath);
+	assert.notEqual(result.firstRuntimePath, result.secondRuntimePath);
+	assert.equal(result.existedBeforeClear, true);
+	assert.equal(result.existsAfterClear, false);
+	assert.equal(result.secondExistsAfterClear, false);
 	assert.equal(await readFile(sibling, "utf8"), "preserve");
 });
 
@@ -123,6 +201,7 @@ test("clone cleanup unlinks a direct-child symlink without deleting its target",
 	const binDir = join(root, "bin");
 	const clonePath = join(root, "repos");
 	const outside = join(root, "outside");
+	const destinationFile = join(root, "destination.txt");
 	await mkdir(agentDir, { recursive: true });
 	await mkdir(binDir, { recursive: true });
 	await mkdir(clonePath, { recursive: true });
@@ -130,10 +209,13 @@ test("clone cleanup unlinks a direct-child symlink without deleting its target",
 	await writeFile(join(outside, "marker.txt"), "preserve", "utf8");
 	await writeFile(join(agentDir, "web-search.json"), JSON.stringify({ githubClone: { clonePath } }), "utf8");
 	await writeFakeExecutable(binDir, "gh", "process.exit(1);");
-	await writeFakeExecutable(binDir, "git", "process.exit(1);");
-	const digest = createHash("sha256").update(JSON.stringify(["owner", "repo", null])).digest("hex");
-	const localPath = join(clonePath, digest);
-	await symlink(outside, localPath, "dir");
+	await writeFakeExecutable(binDir, "git", `
+		const { symlinkSync, writeFileSync } = require("node:fs");
+		const destination = process.argv.at(-1);
+		symlinkSync(process.env.OUTSIDE_TARGET, destination, "dir");
+		writeFileSync(process.env.DESTINATION_FILE, destination);
+		process.exit(1);
+	`);
 
 	const child = spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
@@ -141,12 +223,189 @@ test("clone cleanup unlinks a direct-child symlink without deleting its target",
 			await extractGitHub("https://github.com/owner/repo");
 		`,
 		encoding: "utf8",
-		env: { ...process.env, PATH: `${binDir}${delimiter}${process.env.PATH || ""}`, PI_CODING_AGENT_DIR: agentDir },
+		env: {
+			...process.env,
+			DESTINATION_FILE: destinationFile,
+			OUTSIDE_TARGET: outside,
+			PATH: `${binDir}${delimiter}${process.env.PATH || ""}`,
+			PI_CODING_AGENT_DIR: agentDir,
+		},
 	});
 
 	assert.equal(child.status, 0, child.stderr);
-	assert.equal(existsSync(localPath), false);
+	assert.equal(existsSync(await readFile(destinationFile, "utf8")), false);
 	assert.equal(await readFile(join(outside, "marker.txt"), "utf8"), "preserve");
+});
+
+test("a failed clone cannot clean up another process's in-flight destination", { skip: process.platform === "win32" }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-runtime-race-"));
+	const agentDir = join(root, "agent-dir");
+	const binDir = join(root, "bin");
+	const clonePath = join(root, "repos");
+	const aReady = join(root, "a-ready");
+	const aRelease = join(root, "a-release");
+	const bReady = join(root, "b-ready");
+	const bRelease = join(root, "b-release");
+	await mkdir(agentDir, { recursive: true });
+	await mkdir(binDir, { recursive: true });
+	await writeFile(join(agentDir, "web-search.json"), JSON.stringify({ githubClone: { clonePath } }), "utf8");
+	await writeControlledGh(binDir);
+
+	const childSource = `
+		const { existsSync } = await import("node:fs");
+		const { extractGitHub } = await import(${JSON.stringify(extractModuleUrl)});
+		const result = await extractGitHub("https://github.com/owner/repo", undefined, true);
+		const localPath = result?.content.match(/^Repository cloned to: (.+)$/m)?.[1] ?? null;
+		console.log(JSON.stringify({ result, localPath, pathExists: localPath ? existsSync(localPath) : false }));
+	`;
+	const commonEnv = {
+		...process.env,
+		PATH: `${binDir}${delimiter}${process.env.PATH || ""}`,
+		PI_CODING_AGENT_DIR: agentDir,
+	};
+	let a;
+	let b;
+	try {
+		a = spawnModule(childSource, {
+			...commonEnv,
+			GH_CLONE_CONTENT: "runtime-a",
+			GH_CLONE_RESULT: "success",
+			GH_READY_FILE: aReady,
+			GH_RELEASE_FILE: aRelease,
+		});
+		await waitForFile(aReady);
+
+		b = spawnModule(childSource, {
+			...commonEnv,
+			GH_CLONE_CONTENT: "runtime-b",
+			GH_CLONE_RESULT: "fail",
+			GH_READY_FILE: bReady,
+			GH_RELEASE_FILE: bRelease,
+		});
+		await waitForFile(bReady);
+
+		const aPath = await readFile(aReady, "utf8");
+		const bPath = await readFile(bReady, "utf8");
+		await writeFile(bRelease, "release");
+		const bResult = await b.completed;
+		const aSurvivedFailureCleanup = existsSync(aPath);
+		await writeFile(aRelease, "release");
+		const aResult = await a.completed;
+
+		assert.equal(aResult.status, 0, aResult.stderr);
+		assert.equal(bResult.status, 0, bResult.stderr);
+		assert.notEqual(aPath, bPath);
+		assert.equal(JSON.parse(bResult.stdout).result, null);
+		assert.equal(aSurvivedFailureCleanup, true);
+		const parsedA = JSON.parse(aResult.stdout);
+		assert.equal(parsedA.localPath, aPath);
+		assert.equal(parsedA.pathExists, true);
+		assert.match(parsedA.result.content, /runtime-a/);
+	} finally {
+		await Promise.allSettled([writeFile(aRelease, "release"), writeFile(bRelease, "release")]);
+		if (a?.child.exitCode === null) a.child.kill("SIGKILL");
+		if (b?.child.exitCode === null) b.child.kill("SIGKILL");
+	}
+});
+
+test("runtime cache reuse and cleanup stay isolated across processes", { skip: process.platform === "win32" }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-runtime-clear-"));
+	const agentDir = join(root, "agent-dir");
+	const binDir = join(root, "bin");
+	const clonePath = join(root, "repos");
+	const aReady = join(root, "a-runtime-ready.json");
+	const aRelease = join(root, "a-runtime-release");
+	const aCount = join(root, "a-count");
+	const bCount = join(root, "b-count");
+	await mkdir(agentDir, { recursive: true });
+	await mkdir(binDir, { recursive: true });
+	await writeFile(join(agentDir, "web-search.json"), JSON.stringify({ githubClone: { clonePath } }), "utf8");
+	await writeControlledGh(binDir);
+
+	const commonEnv = {
+		...process.env,
+		PATH: `${binDir}${delimiter}${process.env.PATH || ""}`,
+		PI_CODING_AGENT_DIR: agentDir,
+	};
+	let a;
+	try {
+		a = spawnModule(`
+			const { existsSync, readFileSync } = await import("node:fs");
+			const { writeFile } = await import("node:fs/promises");
+			const { join } = await import("node:path");
+			const { extractGitHub } = await import(${JSON.stringify(extractModuleUrl)});
+			const first = await extractGitHub("https://github.com/owner/repo", undefined, true);
+			const second = await extractGitHub("https://github.com/owner/repo", undefined, true);
+			const firstPath = first?.content.match(/^Repository cloned to: (.+)$/m)?.[1] ?? null;
+			const secondPath = second?.content.match(/^Repository cloned to: (.+)$/m)?.[1] ?? null;
+			await writeFile(process.env.RUNTIME_READY_FILE, JSON.stringify({
+				firstPath,
+				secondPath,
+				firstContent: first?.content ?? null,
+				secondContent: second?.content ?? null,
+			}));
+			while (!existsSync(process.env.RUNTIME_RELEASE_FILE)) {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			console.log(JSON.stringify({
+				pathExists: firstPath ? existsSync(firstPath) : false,
+				readme: firstPath ? readFileSync(join(firstPath, "README.md"), "utf8") : null,
+			}));
+		`, {
+			...commonEnv,
+			GH_CLONE_CONTENT: "runtime-a",
+			GH_CLONE_COUNT_FILE: aCount,
+			RUNTIME_READY_FILE: aReady,
+			RUNTIME_RELEASE_FILE: aRelease,
+		});
+		await waitForFile(aReady);
+
+		const b = spawnModule(`
+			const { existsSync, statSync } = await import("node:fs");
+			const { dirname } = await import("node:path");
+			const { clearCloneCache, extractGitHub } = await import(${JSON.stringify(extractModuleUrl)});
+			const result = await extractGitHub("https://github.com/owner/repo", undefined, true);
+			const localPath = result?.content.match(/^Repository cloned to: (.+)$/m)?.[1] ?? null;
+			const runtimePath = localPath ? dirname(localPath) : null;
+			const runtimeMode = runtimePath ? statSync(runtimePath).mode & 0o777 : null;
+			clearCloneCache();
+			console.log(JSON.stringify({
+				content: result?.content ?? null,
+				localPath,
+				runtimeMode,
+				existsAfterClear: runtimePath ? existsSync(runtimePath) : false,
+			}));
+		`, {
+			...commonEnv,
+			GH_CLONE_CONTENT: "runtime-b",
+			GH_CLONE_COUNT_FILE: bCount,
+		});
+		const bResult = await b.completed;
+		assert.equal(bResult.status, 0, bResult.stderr);
+
+		const aState = JSON.parse(await readFile(aReady, "utf8"));
+		const bState = JSON.parse(bResult.stdout);
+		assert.ok(aState.firstPath);
+		assert.equal(aState.firstPath, aState.secondPath);
+		assert.notEqual(aState.firstPath, bState.localPath);
+		assert.match(aState.firstContent, /runtime-a/);
+		assert.match(aState.secondContent, /runtime-a/);
+		assert.match(bState.content, /runtime-b/);
+		assert.equal(await readFile(aCount, "utf8"), "1");
+		assert.equal(await readFile(bCount, "utf8"), "1");
+		assert.equal(bState.runtimeMode & 0o077, 0);
+		assert.equal(bState.existsAfterClear, false);
+		assert.equal(existsSync(aState.firstPath), true);
+		assert.equal((await stat(dirname(aState.firstPath))).mode & 0o077, 0);
+
+		await writeFile(aRelease, "release");
+		const aResult = await a.completed;
+		assert.equal(aResult.status, 0, aResult.stderr);
+		assert.deepEqual(JSON.parse(aResult.stdout), { pathExists: true, readme: "runtime-a" });
+	} finally {
+		await writeFile(aRelease, "release");
+		if (a?.child.exitCode === null) a.child.kill("SIGKILL");
+	}
 });
 
 test("normalizeClonePath expands ~ to HOME", async () => {
