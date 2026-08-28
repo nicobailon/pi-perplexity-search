@@ -83,6 +83,19 @@ function hostnameOf(url: string): string {
 	}
 }
 
+// XCrawl's Google SERP results can carry links relative to the API origin
+// (e.g. "/goto?url=..." redirect stubs) instead of the documented absolute
+// URLs. Resolve those against the API origin so callers always receive a
+// well-formed absolute URL; absolute http(s) links pass through unchanged.
+function absolutizeLink(link: string): string {
+	if (/^https?:\/\//i.test(link)) return link;
+	try {
+		return new URL(link, XCRAWL_API_URL).href;
+	} catch {
+		return link;
+	}
+}
+
 // Normalize a shared domainFilter entry the same way Valyu does before
 // matching: trim, lowercase, strip URL/paths/ports, validate the shape.
 function normalizeDomain(value: string): string | null {
@@ -151,9 +164,10 @@ function parseResponse(value: unknown): SearchResponse["results"] {
 		if (snippet !== undefined && snippet !== null && typeof snippet !== "string") {
 			throw invalidResponse(`expected organic_results[${index}].snippet to be a string or null`);
 		}
+		const resolved = absolutizeLink(link);
 		results.push({
-			title: typeof title === "string" && title.trim().length > 0 ? title : link,
-			url: link,
+			title: typeof title === "string" && title.trim().length > 0 ? title : resolved,
+			url: resolved,
 			snippet: typeof snippet === "string" ? snippet : "",
 		});
 	}

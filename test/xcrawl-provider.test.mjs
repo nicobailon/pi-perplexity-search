@@ -69,6 +69,26 @@ test("XCrawl sends Bearer credentials to the SERP endpoint, normalizes null titl
 	assert.equal(output.routedProvider, "xcrawl");
 });
 
+test("XCrawl resolves API-origin-relative result links to absolute URLs", async () => {
+	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
+	const child = runChild(`
+		globalThis.fetch = async () => new Response(JSON.stringify(${JSON.stringify(serpEnvelope({
+			organic: [
+				{ position: 1, title: "Redirect result", link: "/goto?url=CAESAAAA", snippet: "Obfuscated link." },
+				{ position: 2, title: null, link: "https://www.example.com/absolute", snippet: "Absolute link." },
+			],
+		}))}), { status: 200 });
+		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
+		const response = await searchWithXCrawl("links");
+		console.log(JSON.stringify(response.results));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const results = JSON.parse(child.stdout.trim());
+	assert.equal(results[0].url, "https://run.xcrawl.com/goto?url=CAESAAAA");
+	assert.equal(results[1].url, "https://www.example.com/absolute");
+	assert.equal(results[1].title, "https://www.example.com/absolute");
+});
+
 test("XCrawl applies the shared domain filter client-side", async () => {
 	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
 	const child = runChild(`
