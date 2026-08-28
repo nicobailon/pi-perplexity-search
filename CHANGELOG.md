@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 
 - Expanded JSON-array strings supplied in the singular `web_search` `query` field into independent searches, with a clear no-query error for empty arrays. Thanks to [@alex-rs](https://github.com/alex-rs) for #317 and [@zeroicey](https://github.com/zeroicey) for PR #319.
 - Kept Defuddle selector-processing failures out of the Pi console and stopped treating the raw page body as a successful extraction. Thanks to [@riabiy](https://github.com/riabiy) for #315.
+- Resolved API-origin-relative XCrawl result links to absolute URLs so emitted source links remain clickable. Thanks to [@zeroicey](https://github.com/zeroicey) for #318.
 
 ## [0.25.0] - 2026-08-25
 

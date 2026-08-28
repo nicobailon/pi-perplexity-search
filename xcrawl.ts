@@ -83,6 +83,19 @@ function hostnameOf(url: string): string {
 	}
 }
 
+// XCrawl's Google SERP results can carry links relative to the API origin
+// (e.g. "/goto?url=..." redirect stubs) instead of the documented absolute
+// URLs. Resolve those against the API origin so callers always receive a
+// well-formed absolute URL; absolute http(s) links pass through unchanged.
+function absolutizeLink(link: string): string {
+	if (/^https?:\/\//i.test(link)) return link;
+	try {
+		return new URL(link, XCRAWL_API_URL).href;
+	} catch {
+		return link;
+	}
+}
+
 // Normalize a shared domainFilter entry the same way Valyu does before
 // matching: trim, lowercase, strip URL/paths/ports, validate the shape.
 function normalizeDomain(value: string): string | null {
@@ -144,16 +157,17 @@ function parseResponse(value: unknown): SearchResponse["results"] {
 		}
 		const result = value as XCrawlSerpResult;
 		const { title, link, snippet } = result;
-		if (typeof link !== "string" || !link) throw invalidResponse(`expected organic_results[${index}].link to be a non-empty string`);
+		if (typeof link !== "string" || !link.trim()) throw invalidResponse(`expected organic_results[${index}].link to be a non-empty string`);
 		if (title !== null && title !== undefined && typeof title !== "string") {
 			throw invalidResponse(`expected organic_results[${index}].title to be a string or null`);
 		}
 		if (snippet !== undefined && snippet !== null && typeof snippet !== "string") {
 			throw invalidResponse(`expected organic_results[${index}].snippet to be a string or null`);
 		}
+		const resolved = absolutizeLink(link.trim());
 		results.push({
-			title: typeof title === "string" && title.trim().length > 0 ? title : link,
-			url: link,
+			title: typeof title === "string" && title.trim().length > 0 ? title : resolved,
+			url: resolved,
 			snippet: typeof snippet === "string" ? snippet : "",
 		});
 	}
