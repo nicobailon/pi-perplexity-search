@@ -34,14 +34,14 @@ function runChild(script, env) {
 	});
 }
 
-test("web_search expands a JSON-array string in query into separate searches", async () => {
+async function setupHome() {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-317-"));
 	await writeFile(join(home, "web-search.json"), JSON.stringify({ xcrawlApiKey: "xc-test-key" }) + "\n", "utf8");
+	return home;
+}
 
-	// What a small/local model actually sends: the queries array serialized as a
-	// JSON string inside the single-string `query` field.
-	const brokenQuery = '["AGP version", "Compose BOM", "CameraX"]';
-
+// Runs web_search with the given params and returns the queries XCrawl actually received.
+function capturedQueries(home, params) {
 	const child = runChild(`
 		const requests = [];
 		globalThis.fetch = async (url, init) => {
@@ -69,21 +69,51 @@ test("web_search expands a JSON-array string in query into separate searches", a
 			exec() { return { code: 0 }; },
 		});
 		const webSearch = tools.find((tool) => tool.name === "web_search");
-		await webSearch.execute("call", {
-			query: ${JSON.stringify(brokenQuery)},
-			provider: "xcrawl",
-			workflow: "none",
-			numResults: 2,
-		});
-		console.log(JSON.stringify(requests));
+		await webSearch.execute("call", ${JSON.stringify(params)});
+		const queries = requests
+			.filter((request) => request.url === "https://run.xcrawl.com/v1/serp")
+			.map((request) => request.q);
+		console.log(JSON.stringify(queries));
 	`, { PI_CODING_AGENT_DIR: home });
-
 	assert.equal(child.status, 0, child.stderr);
-	const requests = JSON.parse(child.stdout.trim());
-	const queries = requests
-		.filter((request) => request.url === "https://run.xcrawl.com/v1/serp")
-		.map((request) => request.q);
+	return JSON.parse(child.stdout.trim());
+}
 
-	// Three independent backend queries, not one literal JSON-array string.
+test("web_search expands a JSON-array string in query into separate searches", async () => {
+	const home = await setupHome();
+	// What a small/local model actually sends: the queries array serialized as
+	// a JSON string inside the single-string `query` field.
+	const queries = capturedQueries(home, {
+		query: '["AGP version", "Compose BOM", "CameraX"]',
+		provider: "xcrawl",
+		workflow: "none",
+		numResults: 2,
+	});
 	assert.deepEqual(queries, ["AGP version", "Compose BOM", "CameraX"]);
+});
+
+test("web_search keeps mixed JSON arrays in query as a single literal query", async () => {
+	const home = await setupHome();
+	const queries = capturedQueries(home, {
+		query: '["AGP version", 5]',
+		provider: "xcrawl",
+		workflow: "none",
+		numResults: 2,
+	});
+	// Not an unambiguous string array — keep it verbatim rather than silently
+	// dropping the non-string member.
+	assert.deepEqual(queries, ['["AGP version", 5]']);
+});
+
+test("web_search does not reinterpret already-structured queries entries", async () => {
+	const home = await setupHome();
+	const queries = capturedQueries(home, {
+		queries: ['["AGP version", "Compose BOM"]'],
+		provider: "xcrawl",
+		workflow: "none",
+		numResults: 2,
+	});
+	// The plural `queries` field is already structured — expansion stays scoped
+	// to the malformed singular `query` field.
+	assert.deepEqual(queries, ['["AGP version", "Compose BOM"]']);
 });

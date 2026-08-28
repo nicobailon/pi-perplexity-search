@@ -358,9 +358,11 @@ function expandQueryString(query: unknown): string[] {
 	if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
 		try {
 			const parsed: unknown = JSON.parse(trimmed);
-			if (Array.isArray(parsed)) {
+			// Only expand an unambiguously string-only array. Mixed or non-string
+			// arrays are kept as the literal query so we never silently drop
+			// members or collapse them into an empty search.
+			if (Array.isArray(parsed) && parsed.every((entry): entry is string => typeof entry === "string")) {
 				return parsed
-					.filter((entry): entry is string => typeof entry === "string")
 					.map((entry) => entry.trim())
 					.filter((entry) => entry.length > 0);
 			}
@@ -1774,7 +1776,7 @@ export default function (pi: ExtensionAPI) {
 		async execute(callId, params, signal, onUpdate, ctx) {
 			return runWithProxy(typeof params.proxy === "string" ? params.proxy : undefined, async () => {
 				const rawQueryList: unknown[] = Array.isArray(params.queries)
-					? params.queries.flatMap(expandQueryString)
+					? params.queries
 					: (params.query !== undefined ? expandQueryString(params.query) : []);
 				const queryList = normalizeQueryList(rawQueryList);
 				const configWorkflow = loadConfigForExtensionInit().workflow;
@@ -2070,7 +2072,7 @@ export default function (pi: ExtensionAPI) {
 		renderCall(args, theme) {
 			const input = args as { query?: unknown; queries?: unknown };
 			const rawQueryList: unknown[] = Array.isArray(input.queries)
-				? input.queries.flatMap(expandQueryString)
+				? input.queries
 				: (input.query !== undefined ? expandQueryString(input.query) : []);
 			const queryList = normalizeQueryList(rawQueryList);
 			if (queryList.length === 0) {
