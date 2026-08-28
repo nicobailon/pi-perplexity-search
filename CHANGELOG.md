@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Set the Defuddle fallback document URL before parsing pages with relative canonical links, preventing `ERR_INVALID_URL` warnings. Thanks to [@bin115885](https://github.com/bin115885) for issue #322.
+
 ## [0.26.0] - 2026-08-28
 
 ### Highlights

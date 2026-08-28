@@ -57,6 +57,25 @@ test("null Readability output falls back to local Defuddle extraction", async (t
 	assert.match(result.content, /https:\/\/example\.com\/openapi\.json/);
 });
 
+test("Defuddle fallback resolves relative canonical URLs against the fetched URL", async (t) => {
+	const originalConsoleWarn = console.warn;
+	t.after(() => {
+		globalThis.fetch = originalFetch;
+		console.warn = originalConsoleWarn;
+	});
+	const article = "Defuddle content with a relative canonical URL stays quiet. ".repeat(20);
+	globalThis.fetch = async () => new Response(
+		`<!doctype html><html><head><title>Relative canonical</title><link rel="canonical" href="/relative-canonical"></head><body><aside><main>${article}</main></aside></body></html>`,
+		{ status: 200, headers: { "content-type": "text/html" } },
+	);
+	const warnings = [];
+	console.warn = (...args) => { warnings.push(args); };
+
+	const result = await extractContent("https://example.com/relative-canonical", undefined, { lookup });
+	assert.equal(result.error, null);
+	assert.deepEqual(warnings, []);
+});
+
 test("short Readability output falls back to useful Defuddle content", async (t) => {
 	t.after(() => { globalThis.fetch = originalFetch; });
 	const article = "Useful Defuddle content after the short Readability article. ".repeat(20);

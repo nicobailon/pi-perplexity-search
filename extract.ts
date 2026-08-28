@@ -51,6 +51,10 @@ function isDefuddleConsoleError(args: Parameters<typeof console.error>): boolean
 async function extractWithDefuddle(text: string, url: string): Promise<{ title: string; content: string } | null> {
 	const { Defuddle } = await import("defuddle/node");
 	const { document } = parseHTML(text);
+	Object.defineProperty(document, "location", {
+		value: new URL(url),
+		configurable: true,
+	});
 	let processingError: unknown;
 	const originalConsoleError = console.error;
 	console.error = (...args) => {
