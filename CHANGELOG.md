@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Isolated GitHub clone workdirs per extension runtime so cleanup in one process cannot delete another process's clone.
+
 ## [0.26.0] - 2026-08-28
 
 ### Highlights
