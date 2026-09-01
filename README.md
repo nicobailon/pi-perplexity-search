@@ -85,6 +85,14 @@ brew install yt-dlp   # YouTube stream URLs for frame extraction
 
 Without these, video content analysis (transcripts, visual descriptions via Gemini) still works. The binaries are only needed for extracting individual frames as images.
 
+System dependencies for curator browser launch:
+
+| Package | Purpose | Install |
+|---------|---------|---------|
+| `xdg-utils` | Opens the curator UI in your default browser | Debian/Ubuntu: `sudo apt install -y xdg-utils` · Fedora/RHEL: `sudo dnf install -y xdg-utils` · Arch: `sudo pacman -S xdg-utils` |
+
+Without `xdg-utils`, the curator URL is printed to the tool output so you can copy it into a browser. On WSL, `xdg-open` auto-detects the environment and delegates to `explorer.exe` under the hood.
+
 Requires Pi v0.37.3+.
 
 ## Quick Start
