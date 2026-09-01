@@ -13,11 +13,14 @@ const originalPath = process.env.PATH;
 const originalNoProxy = process.env.NO_PROXY;
 const originalNoProxyLower = process.env.no_proxy;
 const utilsUrl = new URL("../utils.ts", import.meta.url).href;
+const ssrfProtectionUrl = new URL("../ssrf-protection.ts", import.meta.url).href;
+const indexUrl = new URL("../index.ts", import.meta.url).href;
 
 function runConfigProbe(dir, script) {
 	const child = spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
-			const { getActiveProxy, runWithProxy } = await import(${JSON.stringify(utilsUrl)});
+			const { getActiveProxy, hasScopedProxyDecision, runWithProxy } = await import(${JSON.stringify(utilsUrl)});
+			const { validateRemoteUrl } = await import(${JSON.stringify(ssrfProtectionUrl)});
 			${script}
 		`,
 		encoding: "utf8",
@@ -165,6 +168,29 @@ test("configured proxy is scoped to web operations while empty string forces dir
 	]);
 });
 
+test("omitted proxy preserves trusted environment proxy routing when no proxy is configured", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-env-trust-test-"));
+	t.after(async () => {
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	assert.deepEqual(runConfigProbe(dir, `
+		for (const key of ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]) {
+			delete process.env[key];
+		}
+		process.env.HTTPS_PROXY = "http://env-proxy.example:8080";
+		let lookups = 0;
+		await runWithProxy(undefined, () => validateRemoteUrl("https://public.example.test/", {
+			trustEnvProxy: true,
+			lookup: async () => {
+				lookups++;
+				return [{ address: "10.0.0.10", family: 4 }];
+			},
+		}));
+		console.log(JSON.stringify({ lookups, scoped: hasScopedProxyDecision() }));
+	`), { lookups: 0, scoped: false });
+});
+
 test("invalid configured proxy fails closed instead of direct fetching", async (t) => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-invalid-config-test-"));
 	await writeFile(join(dir, "web-search.json"), JSON.stringify({ proxy: "socks5://proxy.example:1080" }));
@@ -181,6 +207,66 @@ test("invalid configured proxy fails closed instead of direct fetching", async (
 		}
 		console.log(JSON.stringify(message));
 	`), /proxy.*must use the http:\/\/ or https:\/\/ scheme/);
+});
+
+test("invalid configured proxy reaches background fetch rejection handling", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-background-config-test-"));
+	const configPath = join(dir, "web-search.json");
+	await writeFile(configPath, JSON.stringify({ provider: "openai" }));
+	t.after(async () => {
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const { writeFileSync } = await import("node:fs");
+			const configPath = ${JSON.stringify(configPath)};
+			const messages = [];
+			globalThis.fetch = async (url) => {
+				if (String(url) !== "https://api.openai.com/v1/responses") {
+					throw new Error("Unexpected fetch: " + url);
+				}
+				writeFileSync(configPath, JSON.stringify({ provider: "openai", proxy: "socks5://proxy.example:1080" }));
+				return new Response(JSON.stringify({ output: [
+					{ type: "web_search_call", action: { sources: [{ title: "Source", url: "https://example.com/source" }] } },
+					{ type: "message", content: [{ type: "output_text", text: "Search answer" }] },
+				] }), { status: 200, headers: { "content-type": "application/json" } });
+			};
+			const tools = [];
+			const handlers = new Map();
+			const pi = {
+				registerTool(tool) { tools.push(tool); },
+				registerCommand() {},
+				registerShortcut() {},
+				on(event, handler) { handlers.set(event, handler); },
+				appendEntry() {},
+				sendMessage(message) { messages.push(message); },
+			};
+			const initializeExtension = (await import(${JSON.stringify(indexUrl)})).default;
+			initializeExtension(pi);
+			await handlers.get("session_start")({}, { sessionManager: { getBranch: () => [] } });
+			const tool = tools.find((candidate) => candidate.name === "web_search");
+			const result = await tool.execute("background-proxy-test", {
+				query: "proxy cleanup",
+				provider: "openai",
+				workflow: "none",
+				includeContent: true,
+			});
+			await new Promise((resolve) => setImmediate(resolve));
+			console.log(JSON.stringify({
+				result: result.content[0].text,
+				errors: messages.filter((message) => message.customType === "web-search-error").map((message) => message.content),
+			}));
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: dir, OPENAI_API_KEY: "proxy-background-test-key" },
+		maxBuffer: 2 * 1024 * 1024,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.match(output.result, /Content fetching in background/);
+	assert.equal(output.errors.length, 1, JSON.stringify(output));
+	assert.match(output.errors[0], /proxy.*must use the http:\/\/ or https:\/\/ scheme/);
 });
 
 test("proxy transport does not spawn curl for pre-aborted requests", async (t) => {

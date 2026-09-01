@@ -251,9 +251,12 @@ function loadConfiguredProxy(): string | null {
 }
 
 export function runWithProxy<T>(proxy: string | undefined, fn: () => T): T {
-	const normalized = proxy === undefined
-		? loadConfiguredProxy()
-		: normalizeProxyUrl(proxy, "proxy");
+	if (proxy === undefined) {
+		const configured = loadConfiguredProxy();
+		if (configured === null) return fn();
+		return proxyStorage.run(configured, fn);
+	}
+	const normalized = normalizeProxyUrl(proxy, "proxy");
 	return proxyStorage.run(normalized, fn);
 }
 
