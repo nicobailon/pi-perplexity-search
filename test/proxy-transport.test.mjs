@@ -141,7 +141,7 @@ test("proxy curl redirects strip caller headers across origins", async (t) => {
 	});
 });
 
-test("omitted proxy uses global config while empty string forces direct access", async (t) => {
+test("configured proxy is scoped to web operations while empty string forces direct access", async (t) => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-config-test-"));
 	await writeFile(join(dir, "web-search.json"), JSON.stringify({ proxy: "http://global-proxy.example:8080" }));
 	t.after(async () => {
@@ -150,14 +150,18 @@ test("omitted proxy uses global config while empty string forces direct access",
 
 	assert.deepEqual(runConfigProbe(dir, `
 		console.log(JSON.stringify([
+			getActiveProxy(),
 			runWithProxy(undefined, () => getActiveProxy()),
 			runWithProxy("", () => getActiveProxy()),
 			runWithProxy("http://call-proxy.example:8080", () => getActiveProxy()),
+			getActiveProxy(),
 		]));
 	`), [
+		null,
 		"http://global-proxy.example:8080/",
 		null,
 		"http://call-proxy.example:8080/",
+		null,
 	]);
 });
 
@@ -171,7 +175,7 @@ test("invalid configured proxy fails closed instead of direct fetching", async (
 	assert.match(runConfigProbe(dir, `
 		let message = "";
 		try {
-			getActiveProxy();
+			runWithProxy(undefined, () => getActiveProxy());
 		} catch (error) {
 			message = error.message;
 		}

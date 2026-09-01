@@ -251,14 +251,14 @@ function loadConfiguredProxy(): string | null {
 }
 
 export function runWithProxy<T>(proxy: string | undefined, fn: () => T): T {
-	if (proxy === undefined) return fn();
-	const normalized = normalizeProxyUrl(proxy, "proxy");
+	const normalized = proxy === undefined
+		? loadConfiguredProxy()
+		: normalizeProxyUrl(proxy, "proxy");
 	return proxyStorage.run(normalized, fn);
 }
 
 export function getActiveProxy(): string | null {
-	const scoped = proxyStorage.getStore();
-	return scoped !== undefined ? scoped : loadConfiguredProxy();
+	return proxyStorage.getStore() ?? null;
 }
 
 export function hasScopedProxyDecision(): boolean {
