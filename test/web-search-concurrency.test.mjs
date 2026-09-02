@@ -83,7 +83,8 @@ test("web_search bounds batch concurrency and preserves query order", async () =
 				completed,
 				queries: curatedResult.details.curatedQueries.map(entry => entry.query),
 			};
-			console.log(JSON.stringify({ raw, curated }));
+			const queriesDescription = webSearch.parameters.properties.queries.description;
+			console.log(JSON.stringify({ raw, curated, queriesDescription }));
 		`,
 		encoding: "utf8",
 		env: childEnv,
@@ -91,7 +92,7 @@ test("web_search bounds batch concurrency and preserves query order", async () =
 	});
 
 	assert.equal(child.status, 0, child.stderr);
-	const { raw, curated } = JSON.parse(child.stdout.trim());
+	const { raw, curated, queriesDescription } = JSON.parse(child.stdout.trim());
 	assert.equal(raw.maxActive, 3);
 	assert.deepEqual(raw.started, ["q1", "q2", "q3", "q4", "q5"]);
 	assert.notDeepEqual(raw.completed, raw.started);
@@ -106,4 +107,5 @@ test("web_search bounds batch concurrency and preserves query order", async () =
 	assert.deepEqual(curated.started, raw.started);
 	assert.notDeepEqual(curated.completed, curated.started);
 	assert.deepEqual(curated.queries, raw.started);
+	assert.match(queriesDescription, /concurrently \(up to three at a time\)/);
 });

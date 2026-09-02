@@ -122,6 +122,45 @@ test("curator replays search events after SSE reconnect", async () => {
 	}
 });
 
+test("curator add-search indexes do not collide with reserved initial provider results", async () => {
+	const { startCuratorServer } = await loadServer();
+	const handle = await startCuratorServer({
+		...baseOptions(20),
+		queries: ["initial one", "initial two"],
+		initialResultIndexCapacity: 6,
+	}, baseCallbacks(() => {}));
+
+	try {
+		const searchResponse = await fetch(new URL("/search", handle.url), {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ token: "test-token", query: "added search" }),
+		});
+		assert.equal(searchResponse.status, 200);
+		const added = await searchResponse.json();
+		assert.equal(added.queryIndex, 6);
+		assert.notEqual(added.queryIndex, 2);
+
+		// Index 2 is a later provider result for the first initial query. Before
+		// reserving the initial range, the added search also received index 2.
+		handle.pushResult(2, {
+			query: "initial one",
+			slotIndex: 0,
+			answer: "late provider answer",
+			results: [],
+			provider: "brave",
+		});
+		handle.searchesDone();
+
+		const eventsUrl = new URL("/events", handle.url);
+		eventsUrl.searchParams.set("session", "test-token");
+		const events = await readEventStreamUntil(await fetch(eventsUrl), "event: done", "reserved-index replay");
+		assert.match(events, /"query":"initial one"[\s\S]*"queryIndex":2/);
+	} finally {
+		handle.close();
+	}
+});
+
 test("curator submit rejects contradictory summary metadata", async () => {
 	const { startCuratorServer } = await loadServer();
 	const handle = await startCuratorServer(baseOptions(20), baseCallbacks(() => {}));

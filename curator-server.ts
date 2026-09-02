@@ -17,6 +17,8 @@ type CuratorStoredEvent =
 
 export interface CuratorServerOptions {
 	queries: string[];
+	/** First index available to searches added while initial results are still streaming. */
+	initialResultIndexCapacity?: number;
 	sessionToken: string;
 	timeout: number;
 	availableProviders: ProviderAvailability;
@@ -194,6 +196,7 @@ export function startCuratorServer(
 ): Promise<CuratorServerHandle> {
 	const {
 		queries,
+		initialResultIndexCapacity,
 		sessionToken,
 		timeout,
 		availableProviders,
@@ -213,7 +216,7 @@ export function startCuratorServer(
 	let sseResponse: ServerResponse | null = null;
 	const streamedEventsByResultIndex = new Map<number, CuratorStoredEvent>();
 	let searchStreamDone = queries.length === 0;
-	let nextQueryIndex = queries.length;
+	let nextQueryIndex = Math.max(queries.length, initialResultIndexCapacity ?? queries.length);
 	let summarizeAbortController: AbortController | null = null;
 	let summarizeRequestSeq = 0;
 
