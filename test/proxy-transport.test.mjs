@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import initializeExtension from "../index.ts";
-import { getActiveProxy, installGlobalProxyFetch, runWithProxy } from "../utils.ts";
+import { getActiveProxy, installGlobalProxyFetch, runInExtensionScope, runWithProxy } from "../utils.ts";
 
 const originalFetch = globalThis.fetch;
 const originalPath = process.env.PATH;
@@ -17,7 +17,7 @@ const utilsUrl = new URL("../utils.ts", import.meta.url).href;
 function runConfigProbe(dir, script) {
 	const child = spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
-			const { getActiveProxy, runWithProxy } = await import(${JSON.stringify(utilsUrl)});
+			const { getActiveProxy, runInExtensionScope, runWithProxy } = await import(${JSON.stringify(utilsUrl)});
 			${script}
 		`,
 		encoding: "utf8",
@@ -171,7 +171,7 @@ test("invalid configured proxy fails closed instead of direct fetching", async (
 	assert.match(runConfigProbe(dir, `
 		let message = "";
 		try {
-			getActiveProxy();
+			runWithProxy(undefined, () => getActiveProxy());
 		} catch (error) {
 			message = error.message;
 		}
@@ -292,4 +292,75 @@ test("fetch_content passes the explicit proxy through queued extraction", async 
 		assert.ok(pageCall);
 		assert.ok(["http://call-proxy.example:8080", "http://call-proxy.example:8080/"].includes(proxyArg(pageCall)));
 	});
+});
+
+test("getActiveProxy ignores config-level proxy outside extension scope", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-scope-probe-test-"));
+	await writeFile(join(dir, "web-search.json"), JSON.stringify({ proxy: "http://global-proxy.example:8080" }));
+	t.after(async () => {
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	assert.deepEqual(runConfigProbe(dir, `
+		console.log(JSON.stringify([
+			getActiveProxy(),
+			runInExtensionScope(() => getActiveProxy()),
+			runWithProxy(undefined, () => getActiveProxy()),
+			runWithProxy("", () => getActiveProxy()),
+		]));
+	`), [
+		null,
+		"http://global-proxy.example:8080/",
+		"http://global-proxy.example:8080/",
+		null,
+	]);
+});
+
+test("config-level proxy does not hijack fetches made outside the extension", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-scope-config-test-"));
+	// Port 1 refuses connections instantly, so a proxied attempt fails fast.
+	await writeFile(join(dir, "web-search.json"), JSON.stringify({ proxy: "http://127.0.0.1:1" }));
+	t.after(async () => {
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	// Runs in a child process: PI_CODING_AGENT_DIR must be set before the
+	// extension modules are imported (getWebSearchConfigDir caches its result).
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const { installGlobalProxyFetch, runWithProxy } = await import(${JSON.stringify(utilsUrl)});
+			installGlobalProxyFetch();
+			const nativeCalls = [];
+			globalThis.fetch = async (input) => {
+				nativeCalls.push(String(input?.url ?? input));
+				return new Response("direct");
+			};
+			installGlobalProxyFetch();
+			const results = {};
+			const direct = await fetch("https://origin.example/proxied");
+			results.directBody = await direct.text();
+			results.nativeCallsAfterDirect = nativeCalls.length;
+			let proxiedError = null;
+			try {
+				await runWithProxy(undefined, () => fetch("https://origin.example/proxied"));
+			} catch (error) {
+				proxiedError = error.message;
+			}
+			results.proxiedError = proxiedError;
+			results.nativeCallsAfterProxied = nativeCalls.length;
+			console.log(JSON.stringify(results));
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: dir, NO_PROXY: "", no_proxy: "" },
+	});
+	assert.equal(child.status, 0, child.stderr);
+
+	// Outside extension scope: the wrapper delegates to the native fetch.
+	// Inside extension scope: the config-level proxy routes through curl (the
+	// refused port makes the attempt fail fast, proving the proxy path ran).
+	const results = JSON.parse(child.stdout);
+	assert.equal(results.directBody, "direct");
+	assert.equal(results.nativeCallsAfterDirect, 1);
+	assert.ok(results.proxiedError, "proxied attempt should fail against the refused port");
+	assert.equal(results.nativeCallsAfterProxied, 1);
 });

@@ -205,6 +205,7 @@ export function mapFfmpegError(err: unknown): string {
 }
 
 const proxyStorage = new AsyncLocalStorage<string | null>();
+const extensionScope = new AsyncLocalStorage<true>();
 
 export function normalizeProxyUrl(value: unknown, source: string): string | null {
 	if (value === undefined || value === null) return null;
@@ -250,15 +251,30 @@ function loadConfiguredProxy(): string | null {
 	return normalizeProxyUrl(configured, `proxy in ${getWebSearchConfigPath()}`);
 }
 
+/**
+ * Marks async work initiated by this extension.
+ *
+ * installGlobalProxyFetch() wraps the host process's global fetch, so the
+ * config-level `proxy` fallback must never apply to unscoped callers —
+ * otherwise unrelated traffic in the host process (e.g. the coding agent's
+ * own LLM API calls) would be routed through the configured proxy.
+ */
+export function runInExtensionScope<T>(fn: () => T): T {
+	if (extensionScope.getStore()) return fn();
+	return extensionScope.run(true, fn);
+}
+
 export function runWithProxy<T>(proxy: string | undefined, fn: () => T): T {
-	if (proxy === undefined) return fn();
+	if (proxy === undefined) return runInExtensionScope(fn);
 	const normalized = normalizeProxyUrl(proxy, "proxy");
-	return proxyStorage.run(normalized, fn);
+	return runInExtensionScope(() => proxyStorage.run(normalized, fn));
 }
 
 export function getActiveProxy(): string | null {
 	const scoped = proxyStorage.getStore();
-	return scoped !== undefined ? scoped : loadConfiguredProxy();
+	if (scoped !== undefined) return scoped;
+	if (!extensionScope.getStore()) return null;
+	return loadConfiguredProxy();
 }
 
 export function hasScopedProxyDecision(): boolean {
