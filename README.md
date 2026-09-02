@@ -392,6 +392,8 @@ Config defaults to `~/.pi/web-search.json`. `PI_CODING_AGENT_DIR` takes preceden
   "serperApiKey": "$SERPER_API_KEY",
   "brightdataApiKey": "$BRIGHTDATA_API_KEY",
   "brightdataSerpZone": "pi_serp",
+  "xaiApiKey": "xai-...",
+  "xaiSearchTools": ["web_search"],
   "searxngBaseUrl": "https://search.example.com",
   "searxngHeaders": {
     "CF-Access-Client-Id": "xxxxxxxx.access",
@@ -657,13 +659,21 @@ XCrawl is an explicit-only provider: it is never included in zero-config `auto` 
 
 xAI is an explicit-only provider: it is never included in zero-config `auto` fallback or in `provider: "all"`, but it can be selected with `provider: "xai"`, configured as the named provider, or placed in `searchRouting`.
 
-It calls xAI's Agent Tools API — the hosted `web_search` tool on `https://api.x.ai/v1/responses` — so the search runs inside Grok's own inference rather than here. Auth resolves through Pi's model registry first, which means a **SuperGrok or X Premium subscription pays for its own searches** and no `xaiApiKey` has to be configured at all; `xaiApiKey` / `XAI_API_KEY` are the fallback for pay-as-you-go API keys.
+It calls xAI's Agent Tools API — the hosted `web_search` tool, with opt-in `x_search`, on `https://api.x.ai/v1/responses` — so the search runs inside Grok's own inference rather than here. Auth resolves through Pi's model registry first, which means a **SuperGrok or X Premium subscription pays for its own searches** and no `xaiApiKey` has to be configured at all; `xaiApiKey` / `XAI_API_KEY` are the fallback for pay-as-you-go API keys.
 
-Explicit-only is deliberate. A single question typically fans out to roughly a dozen `web_search` tool calls, billed at xAI's per-call tool rate on top of tokens and drawn from the same allowance the account uses for chatting. Letting `auto` or `all` reach for it would spend a subscription the user only meant to talk to.
+Explicit-only is deliberate. A single question typically fans out to roughly a dozen `web_search` tool calls, billed at xAI's per-call tool rate on top of tokens and drawn from the same allowance the account uses for chatting. Letting `auto` or `all` reach for it would spend a subscription the user only meant to talk to. X Search is an additional opt-in because it sends the query to xAI's X search surface and may incur its own tool-call charges.
 
-The model is chosen for you: the registry path walks a best-first candidate list and uses the first id Pi actually knows, so a retired model is skipped rather than sent. The API-key path has no registry to consult and starts at `grok-4.5`. `xaiSearchModel` pins the id explicitly on either path, which is the escape hatch if xAI retires a model before a release ships.
+The model is chosen for you: the registry path walks a best-first candidate list and uses the first id Pi actually knows, so a retired model is skipped rather than sent. The API-key path has no registry to consult and starts at `grok-4.5` for the default web-only request. When `x_search` is enabled, the current xAI docs' `grok-4.6` example is preferred instead. `xaiSearchModel` pins the id explicitly on either path, which is the escape hatch if xAI retires a model before a release ships.
 
-Requests send only `{ model, input, tools }`, the shape verified against a live subscription account. `recencyFilter`, `domainFilter`, and `numResults` are folded into the prompt text rather than sent as tool parameters, so an unrecognized field can never turn a search into a 400. Sources are read from `url_citation` annotations on the answer and from each `web_search_call`'s own sources; there is no top-level `citations` array on this API.
+Requests send only `{ model, input, tools }`, the shape verified against a live subscription account. The default `xaiSearchTools` value is `["web_search"]`, preserving the existing behavior. To opt into X Search, set it to `["x_search"]` for X-only searches or `["web_search", "x_search"]` to expose both tools:
+
+```json
+{
+  "xaiSearchTools": ["web_search", "x_search"]
+}
+```
+
+The value must be a non-empty array containing each of `web_search` and `x_search` at most once. This intentionally does not expose per-call X handle, date, or media-understanding parameters until their request contract is stable. `recencyFilter`, `domainFilter`, and `numResults` remain prompt guidance rather than tool parameters, so an unrecognized field cannot turn a search into a 400. Sources are read in annotation-first order from `url_citation` annotations, raw `web_search_call`/`x_search_call` source lists when present, and xAI's response-level `citations` URL list.
 
 xAI's older Live Search (`search_parameters` on `/v1/chat/completions`) is deprecated and now answers HTTP 410.
 
@@ -934,7 +944,7 @@ Rate limits: Perplexity is capped at 10 requests/minute (client-side). Jina Sear
 | `anysearch.ts` | Explicit-only AnySearch search provider |
 | `xcrawl.ts` | Explicit-only XCrawl search provider |
 | `valyu.ts` | Explicit-only Valyu research search provider |
-| `xai-search.ts` | Explicit-only xAI (Grok) hosted web_search provider |
+| `xai-search.ts` | Explicit-only xAI (Grok) hosted web/X search provider |
 | `kimi-search.ts` | Explicit-only Kimi Code Plan search provider |
 | `searxng.ts` | Self-hosted SearXNG JSON API search provider |
 | `duckduckgo.ts` | Explicit-only keyless DuckDuckGo HTML search provider |

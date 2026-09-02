@@ -31,10 +31,8 @@ function runChild(script, env) {
 	});
 }
 
-// The shape a live SuperGrok account actually returns: sources are split across
-// `url_citation` annotations on the answer and the raw `web_search_call` sources.
-// There is deliberately no top-level `citations` array — reading one is the bug
-// this fixture exists to catch.
+// Responses API sources are split across `url_citation` annotations on the
+// answer, raw search-call sources, and the response-level citations URL list.
 function successBody() {
 	return JSON.stringify({
 		output: [
@@ -48,11 +46,45 @@ function successBody() {
 				}],
 			},
 		],
-		citations: ["https://wrong.example.com/never-read-this"],
+		citations: ["https://x.ai/news/grok-imagine", "https://x.ai/citation-only"],
 	});
 }
 
-test("xAI posts the verified minimal Responses body and reads both source shapes", async () => {
+function xSearchBody() {
+	return JSON.stringify({
+		output: [
+			{
+				type: "x_search_call",
+				action: {
+					sources: [
+						{ url: "https://x.com/i/status/raw", title: "Raw X post" },
+						{ url: "https://x.com/i/status/annotated", title: "Raw duplicate" },
+						{ ignored: true },
+					],
+				},
+				sources: ["https://x.com/i/status/source-string"],
+			},
+			{
+				type: "message",
+				content: [{
+					type: "output_text",
+					text: "People are discussing the release on X.",
+					annotations: [
+						{ type: "url_citation", url: "https://x.com/i/status/annotated", title: "Annotated X post", start_index: 0, end_index: 6 },
+						{ type: "url_citation", url: "https://x.com/i/status/answer", title: "Answer citation", start_index: 7, end_index: 15 },
+					],
+				}],
+			},
+		],
+		citations: [
+			"https://x.com/i/status/citation-only",
+			{ url: "https://x.com/i/status/citation-object", title: "Citation object" },
+			42,
+		],
+	});
+}
+
+test("xAI posts the verified minimal Responses body and reads citation source shapes", async () => {
 	const home = await createHome({ xaiApiKey: "xai-key" });
 	const child = runChild(`
 		let captured;
@@ -78,10 +110,37 @@ test("xAI posts the verified minimal Responses body and reads both source shapes
 	assert.match(captured.body.input, /what shipped\?$/);
 
 	assert.match(result.answer, /Grok Imagine v1\.5 shipped/);
-	// Annotations carry titles, so they win the dedupe and come first; the
-	// web_search_call sources fill in what they missed.
-	assert.deepEqual(result.results.map((r) => r.url), ["https://x.ai/news/grok-imagine", "https://x.ai/news"]);
+	// Annotations carry titles, so they win the dedupe and come first; raw
+	// sources and response-level citations fill in what they missed.
+	assert.deepEqual(result.results.map((r) => r.url), ["https://x.ai/news/grok-imagine", "https://x.ai/news", "https://x.ai/citation-only"]);
 	assert.equal(result.results[0].title, "Grok Imagine");
+});
+
+test("xAI opts into web and X tools and keeps annotation sources first", async () => {
+	const home = await createHome({ xaiApiKey: "xai-key", xaiSearchTools: ["web_search", "x_search"] });
+	const child = runChild(`
+		let captured;
+		globalThis.fetch = async (_url, init) => { captured = JSON.parse(init.body); return new Response(${JSON.stringify(xSearchBody())}, { status: 200 }); };
+		const { searchWithXai } = await import(${JSON.stringify(xaiModuleUrl)});
+		const result = await searchWithXai("what are people saying?");
+		console.log(JSON.stringify({ captured, result }));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const { captured, result } = JSON.parse(child.stdout.trim());
+
+	assert.equal(captured.model, "grok-4.6");
+	assert.deepEqual(captured.tools, [{ type: "web_search" }, { type: "x_search" }]);
+	assert.match(captured.input, /Search the web and X/);
+	assert.deepEqual(result.results.map((r) => r.url), [
+		"https://x.com/i/status/annotated",
+		"https://x.com/i/status/answer",
+		"https://x.com/i/status/raw",
+		"https://x.com/i/status/source-string",
+		"https://x.com/i/status/citation-only",
+		"https://x.com/i/status/citation-object",
+	]);
+	assert.equal(result.results[0].title, "Annotated X post");
+	assert.equal(result.results.at(-1).title, "Citation object");
 });
 
 test("xAI folds recency and domain filters into the prompt rather than tool params", async () => {
@@ -102,10 +161,10 @@ test("xAI folds recency and domain filters into the prompt rather than tool para
 	assert.match(body.input, /around 4 distinct sources/);
 });
 
-// The registry path survives model retirement by walking AUTH_MODEL_CANDIDATES
-// against models pi actually knows. The api-key path can't — nothing tells it
-// which ids are live — so `xaiSearchModel` is its escape hatch, the same one
-// `openaiSearchModel` gives the OpenAI backend.
+// The registry path survives model retirement by walking the appropriate
+// model-candidate list against models pi actually knows. The api-key path
+// can't — nothing tells it which ids are live — so `xaiSearchModel` is its
+// escape hatch, the same one `openaiSearchModel` gives the OpenAI backend.
 test("xaiSearchModel pins the model id on the api-key path", async () => {
 	const home = await createHome({ xaiApiKey: "xai-key", xaiSearchModel: "  grok-5  " });
 	const child = runChild(`
@@ -149,6 +208,41 @@ test("a non-string or empty xaiSearchModel is rejected rather than silently igno
 		const { threw, message } = JSON.parse(child.stdout.trim());
 		assert.equal(threw, true, `xaiSearchModel ${JSON.stringify(bad)} should be rejected`);
 		assert.match(message, /xaiSearchModel .* must be a non-empty string/);
+	}
+});
+
+test("xaiSearchTools is validated and may opt into X-only search", async () => {
+	const home = await createHome({ xaiApiKey: "xai-key", xaiSearchTools: ["x_search"] });
+	const child = runChild(`
+		let captured;
+		globalThis.fetch = async (_url, init) => { captured = JSON.parse(init.body); return new Response(${JSON.stringify(xSearchBody())}, { status: 200 }); };
+		const { searchWithXai } = await import(${JSON.stringify(xaiModuleUrl)});
+		const result = await searchWithXai("x only");
+		console.log(JSON.stringify({ captured, result }));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const { captured } = JSON.parse(child.stdout.trim());
+	assert.deepEqual(captured.tools, [{ type: "x_search" }]);
+	assert.match(captured.input, /^Search X and answer/);
+
+	for (const bad of [null, "x_search", [], ["x_search", "x_search"], ["x_search", "unknown"], ["web_search", 42]]) {
+		const badHome = await createHome({ xaiApiKey: "xai-key", xaiSearchTools: bad });
+		const badChild = runChild(`
+			globalThis.fetch = async () => { throw new Error("must not reach the network"); };
+			const { isXaiSearchAvailable, searchWithXai } = await import(${JSON.stringify(xaiModuleUrl)});
+			const available = await isXaiSearchAvailable();
+			try {
+				await searchWithXai("bad tools");
+				console.log(JSON.stringify({ available, threw: false }));
+			} catch (err) {
+				console.log(JSON.stringify({ available, threw: true, message: err.message }));
+			}
+		`, { PI_CODING_AGENT_DIR: badHome });
+		assert.equal(badChild.status, 0, badChild.stderr);
+		const { available, threw, message } = JSON.parse(badChild.stdout.trim());
+		assert.equal(available, false, `xaiSearchTools ${JSON.stringify(bad)} should only make xAI unavailable`);
+		assert.equal(threw, true, `xaiSearchTools ${JSON.stringify(bad)} should be rejected`);
+		assert.match(message, /xaiSearchTools .* (?:non-empty array|web_search or x_search|duplicates)/);
 	}
 });
 

@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Documented the Linux `xdg-utils` dependency for automatic curator browser launch and the manual URL fallback. Thanks to [@wickedTangent](https://github.com/wickedTangent) for issue #336 and PR #337.
+- Added opt-in xAI Agent Tools `x_search` support alongside `web_search`, with validated `xaiSearchTools` configuration and defensive citation handling. Thanks to [@Jerry2003sky](https://github.com/Jerry2003sky) for issue #342.
 
 ### Changed
 
