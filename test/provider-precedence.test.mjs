@@ -218,7 +218,7 @@ test("non-curated search stops after caller cancellation", async () => {
 	});
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.equal(output.calls, 1);
+	assert.equal(output.calls, 0);
 	assert.match(output.error, /abort/i);
 });
 

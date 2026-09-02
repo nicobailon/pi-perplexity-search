@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - Documented the Linux `xdg-utils` dependency for automatic curator browser launch and the manual URL fallback. Thanks to [@wickedTangent](https://github.com/wickedTangent) for issue #336 and PR #337.
 
+### Changed
+
+- Run batch `web_search` queries with bounded concurrency while preserving query order and sequential provider fallback within each query.
+
 ### Fixed
 
 - Cleaned stale GitHub clone runtime directories after a crashed process when the owner can be proven dead, while preserving runtimes with unknown or live owners. Thanks to [@yazanabuashour](https://github.com/yazanabuashour) for issue #331.

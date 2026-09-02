@@ -144,6 +144,8 @@ web_search({ queries: ["query 1", "query 2"], workflow: "auto-summary" })
 | `includeContent` | Fetch full page content from sources in background |
 | `workflow` | `none` (skip curator), `summary-review` (open curator and auto-generate a summary draft, default), or `auto-summary` (generate a summary without opening the curator) |
 
+Batch searches run up to three queries concurrently. Provider routing and fallback within each query remain sequential.
+
 ### fetch_content
 
 Fetch URL(s) as readable markdown, exact textual HTTP bodies, direct images, or page-grounded answers. Automatically detects and handles GitHub repos, GitHub PRs and issues, YouTube videos, PDFs, local video files, images, and regular web pages.
