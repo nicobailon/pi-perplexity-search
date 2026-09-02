@@ -116,6 +116,39 @@ test("Perplexity normalizes invalid result counts", async () => {
 	assert.deepEqual(JSON.parse(child.stdout.trim()).counts, [1, 5, 3]);
 });
 
+test("Perplexity retains cited sources beyond numResults", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-perplexity-citations-"));
+	const child = runChild(`
+		globalThis.fetch = async (_url, init) => {
+			const query = JSON.parse(init.body).messages[0].content;
+			const answer = query === "cited" ? "The answer cites [13]." : "The answer has no citations.";
+			return new Response(JSON.stringify({
+				choices: [{ message: { content: answer } }],
+				citations: Array.from({ length: 13 }, (_, index) => "https://example.com/source-" + (index + 1)),
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+
+		const { searchWithPerplexity } = await import(${JSON.stringify(perplexityModuleUrl)});
+		const cited = await searchWithPerplexity("cited", { numResults: 8 });
+		const uncited = await searchWithPerplexity("uncited", { numResults: 8 });
+		console.log(JSON.stringify({ cited: cited.results, uncitedCount: uncited.results.length }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PERPLEXITY_API_KEY: "pplx-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.cited.length, 13);
+	assert.deepEqual(output.cited[12], {
+		title: "Source 13",
+		url: "https://example.com/source-13",
+		snippet: "",
+	});
+	assert.equal(output.uncitedCount, 8);
+});
+
 test("Tavily search uses bearer auth and maps filters/content", async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-tavily-"));
 	const child = runChild(`
