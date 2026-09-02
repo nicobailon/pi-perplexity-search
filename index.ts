@@ -1087,7 +1087,8 @@ export default function (pi: ExtensionAPI) {
 		const fetchId = generateId();
 		const controller = new AbortController();
 		pendingFetches.set(fetchId, controller);
-		runWithProxy(proxy, () => fetchAllContent(urls, controller.signal, withRegisteredFetchOptions(undefined, registeredToolNames, proxy)))
+		Promise.resolve()
+			.then(() => runWithProxy(proxy, () => fetchAllContent(urls, controller.signal, withRegisteredFetchOptions(undefined, registeredToolNames, proxy))))
 			.then((fetched) => {
 				if (!sessionActive || !pendingFetches.has(fetchId)) return;
 				const data = {
@@ -3289,19 +3290,21 @@ export default function (pi: ExtensionAPI) {
 							}
 						},
 						async onAddSearch(query, provider) {
-							if (commandHandle && !isCommandActive()) {
-								throw new Error("Curator session is no longer active.");
-							}
-							const requestedProvider = resolveCuratorSearchProvider(provider, currentSearchProvider);
-							const response = await search(query, {
-								provider: requestedProvider,
-								signal: searchAbort.signal,
-								extensionContext: ctx,
+							return runWithProxy(undefined, async () => {
+								if (commandHandle && !isCommandActive()) {
+									throw new Error("Curator session is no longer active.");
+								}
+								const requestedProvider = resolveCuratorSearchProvider(provider, currentSearchProvider);
+								const response = await search(query, {
+									provider: requestedProvider,
+									signal: searchAbort.signal,
+									extensionContext: ctx,
+								});
+								if (commandHandle && !isCommandActive()) {
+									throw new Error("Curator session is no longer active.");
+								}
+								return toCuratorSearchEntries(response);
 							});
-							if (commandHandle && !isCommandActive()) {
-								throw new Error("Curator session is no longer active.");
-							}
-							return toCuratorSearchEntries(response);
 						},
 						onAddSearchResults(entries) {
 							if (commandHandle && !isCommandActive()) return;
@@ -3364,11 +3367,11 @@ export default function (pi: ExtensionAPI) {
 							if (aborted || !isCommandActive()) return;
 							const requestedProvider = currentSearchProvider;
 							try {
-								const response = await search(query, {
+								const response = await runWithProxy(undefined, () => search(query, {
 									provider: requestedProvider,
 									signal: searchAbort.signal,
 									extensionContext: ctx,
-								});
+								}));
 								if (aborted || !isCommandActive()) return;
 								const entries = toCuratorSearchEntries(response);
 								for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {

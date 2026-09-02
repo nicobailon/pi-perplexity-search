@@ -291,6 +291,8 @@ Raw and direct-image HTTP requests use the same SSRF validation, hostname domain
 
 An empty string (`""`) forces a direct connection even when a config-level proxy is set. Omitting the parameter falls back to the global `proxy` in `~/.pi/web-search.json`.
 
+The config-level `proxy` applies only to requests made by this extension's tools. Other traffic in the host process — such as the coding agent's own model API calls — is never routed through it, so a configured proxy that is temporarily down cannot break unrelated requests.
+
 ```jsonc
 // ~/.pi/web-search.json — global proxy for all tools
 {
