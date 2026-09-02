@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Run batch `web_search` queries with bounded concurrency while preserving query order and sequential provider fallback within each query.
+- Run batch `web_search` queries with bounded concurrency while preserving query order and sequential provider fallback within each query. Thanks to [@Noir-Lime](https://github.com/Noir-Lime) for PR #345.
 
 ### Fixed
 
