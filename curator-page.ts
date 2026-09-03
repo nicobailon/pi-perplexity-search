@@ -40,6 +40,7 @@ function buildProviderButtons(
 		{ value: "anysearch", label: "AnySearch", available: available.anysearch },
 		{ value: "xcrawl", label: "XCrawl", available: available.xcrawl },
 		{ value: "xai", label: "xAI", available: available.xai },
+		{ value: "mistral", label: "Mistral", available: available.mistral },
 		{ value: "brightdata", label: "Bright Data", available: available.brightdata },
 		{ value: "serpbase", label: "SerpBase", available: available.serpbase },
 		{ value: "serper", label: "Serper", available: available.serper },
@@ -1468,7 +1469,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["all", "openai", "exa", "brave", "parallel", "parallel-mcp", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "bocha", "ollama", "searxng", "duckduckgo", "perplexity", "gemini", "kimi", "anysearch", "xcrawl", "xai", "brightdata", "serpbase", "serper", "valyu"];
+  var providers = ["all", "openai", "exa", "brave", "parallel", "parallel-mcp", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "bocha", "ollama", "searxng", "duckduckgo", "perplexity", "gemini", "kimi", "anysearch", "xcrawl", "xai", "mistral", "brightdata", "serpbase", "serper", "valyu"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1695,6 +1696,7 @@ const SCRIPT = `(function() {
     if (provider === "anysearch") return "AnySearch";
     if (provider === "xcrawl") return "XCrawl";
     if (provider === "xai") return "xAI";
+    if (provider === "mistral") return "Mistral";
     if (provider === "brightdata") return "Bright Data";
     if (provider === "serpbase") return "SerpBase";
     return "Unknown";

@@ -65,6 +65,7 @@ import { isSearXNGAvailable } from "./searxng.ts";
 import { isDuckDuckGoAvailable } from "./duckduckgo.ts";
 import { isAnySearchAvailable } from "./anysearch.ts";
 import { isXaiSearchAvailable } from "./xai-search.ts";
+import { isMistralAvailable } from "./mistral-search.ts";
 import { isKimiSearchAvailable } from "./kimi-search.ts";
 import { isBrightDataAvailable } from "./brightdata.ts";
 import { isSerpBaseAvailable } from "./serpbase.ts";
@@ -441,6 +442,7 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		anysearch: isAnySearchAvailable(),
 		xcrawl: isXcrawlAvailable(),
 		xai: await isXaiSearchAvailable(ctx),
+		mistral: isMistralAvailable(),
 		brightdata: isBrightDataAvailable(),
 		serpbase: isSerpBaseAvailable(),
 		serper: isSerperAvailable(),
@@ -1776,7 +1778,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, Parallel MCP, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, SearXNG, DuckDuckGo, Exa, Perplexity, Gemini, Kimi, AnySearch, XCrawl, Valyu, xAI, Bright Data, SerpBase, or Serper. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Bright Data, SerpBase, and Serper. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key; Kimi search uses a Kimi Code Plan authenticated through /login kimi-coding; xAI search uses a SuperGrok/X Premium subscription or xAI API key. Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Bright Data, SerpBase, and Serper are available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, SearXNG is preferred first for local/private search. When the active Pi model is openai-codex, Codex-backed OpenAI search is preferred next. Otherwise Exa is preferred before OpenAI, then Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, Perplexity, Gemini API, or Gemini Web.`,
+			`Search the web using OpenAI, Brave, Parallel, Parallel MCP, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, SearXNG, DuckDuckGo, Exa, Perplexity, Gemini, Kimi, AnySearch, XCrawl, Valyu, xAI, Mistral, Bright Data, SerpBase, or Serper. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Mistral, Bright Data, SerpBase, and Serper. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key; Kimi search uses a Kimi Code Plan authenticated through /login kimi-coding; xAI search uses a SuperGrok/X Premium subscription or xAI API key; Mistral search uses a Mistral API key. Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Mistral, Bright Data, SerpBase, and Serper are available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, SearXNG is preferred first for local/private search. When the active Pi model is openai-codex, Codex-backed OpenAI search is preferred next. Otherwise Exa is preferred before OpenAI, then Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, Perplexity, Gemini API, or Gemini Web.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
@@ -1788,7 +1790,7 @@ export default function (pi: ExtensionAPI) {
 				StringEnum(["day", "week", "month", "year"], { description: "Filter by recency" }),
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
-			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; use all to search every eligible provider except Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Bright Data, SerpBase, and Serper, omit this field to use the configured provider, or use auto when none is configured")),
+			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; use all to search every eligible provider except Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Mistral, Bright Data, SerpBase, and Serper, omit this field to use the configured provider, or use auto when none is configured")),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
 					description: "Search workflow mode: none = no curator, summary-review = open curator with auto summary draft (default), auto-summary = generate summary without opening curator",
@@ -2382,7 +2384,7 @@ export default function (pi: ExtensionAPI) {
 			fetchContent: Type.Optional(Type.Boolean({ description: "Fetch up to 5 result pages for exact passage extraction." })),
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
-			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; all searches every eligible provider except Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Bright Data, SerpBase, and Serper")),
+			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; all searches every eligible provider except Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Mistral, Bright Data, SerpBase, and Serper")),
 			proxy: Type.Optional(Type.String({
 				description: "http(s) proxy URL (e.g. http://host:port) used for every outbound request in this call (search APIs and result-page fetches). Empty string forces direct access.",
 			})),

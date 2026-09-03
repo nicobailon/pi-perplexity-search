@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Documented the Linux `xdg-utils` dependency for automatic curator browser launch and the manual URL fallback. Thanks to [@wickedTangent](https://github.com/wickedTangent) for issue #336 and PR #337.
 - Added opt-in xAI Agent Tools `x_search` support alongside `web_search`, with validated `xaiSearchTools` configuration and defensive citation handling. Thanks to [@Jerry2003sky](https://github.com/Jerry2003sky) for issue #342.
+- Added explicit-only Mistral Conversations web search over direct HTTP, with `mistralApiKey` / `MISTRAL_API_KEY` credentials and opt-in `web_search_premium` support. Thanks to [@jaudiger](https://github.com/jaudiger) for issue #346.
 
 ### Changed
 

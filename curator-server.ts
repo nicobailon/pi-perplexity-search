@@ -300,6 +300,7 @@ export function startCuratorServer(
 		if (provider === "anysearch") return availableProviders.anysearch;
 		if (provider === "xcrawl") return availableProviders.xcrawl;
 		if (provider === "xai") return availableProviders.xai;
+		if (provider === "mistral") return availableProviders.mistral;
 		if (provider === "brightdata") return availableProviders.brightdata;
 		if (provider === "serpbase") return availableProviders.serpbase;
 		if (provider === "serper") return availableProviders.serper;
