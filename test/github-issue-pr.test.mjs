@@ -15,6 +15,15 @@ async function writeFakeExecutable(binDir, name, source) {
 	return executable;
 }
 
+// For tests that assert a wall-clock bound: a Node shim costs 300–900 ms just
+// to boot on a loaded host and the bound is 1 s, so the probe alone can fail
+// the assertion. A /bin/sh shim starts in a few ms.
+async function writeFakeShellExecutable(binDir, name, script) {
+	const executable = join(binDir, name);
+	await writeFile(executable, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+	return executable;
+}
+
 test("parseGitHubIssuePrUrl accepts PR and issue variants without changing repo parsing", async () => {
 	const { parseGitHubIssuePrUrl } = await import(moduleUrl);
 	assert.deepEqual(parseGitHubIssuePrUrl("https://github.com/owner/repo/pull/123/files#discussion_r42"), {
@@ -294,11 +303,7 @@ test("extractGitHubIssuePr aborts active gh work with the caller signal", async 
 	const agentDir = join(root, "agent");
 	await mkdir(binDir, { recursive: true });
 	await mkdir(agentDir, { recursive: true });
-	await writeFakeExecutable(binDir, "gh", `
-		const args = process.argv.slice(2);
-		if (args[0] === "--version") { console.log("gh version 2.0.0"); process.exit(0); }
-		setTimeout(() => {}, 30000);
-	`);
+	await writeFakeShellExecutable(binDir, "gh", `if [ "$1" = "--version" ]; then echo "gh version 2.0.0"; exit 0; fi\nsleep 30`);
 
 	const child = spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
@@ -320,7 +325,8 @@ test("extractGitHubIssuePr aborts active gh work with the caller signal", async 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout);
 	assert.equal(output.result.error, "Aborted");
-	assert.ok(output.elapsed < 1000, `expected abort before gh timeout, got ${output.elapsed}ms`);
+	// Alternative outcome is the 30 s gh hang; 5 s proves the abort won without racing process spawn on a loaded host.
+	assert.ok(output.elapsed < 5000, `expected abort before gh timeout, got ${output.elapsed}ms`);
 });
 
 test("extractGitHubIssuePr aborts a hung gh availability probe", async () => {
@@ -329,7 +335,7 @@ test("extractGitHubIssuePr aborts a hung gh availability probe", async () => {
 	const agentDir = join(root, "agent");
 	await mkdir(binDir, { recursive: true });
 	await mkdir(agentDir, { recursive: true });
-	await writeFakeExecutable(binDir, "gh", `setTimeout(() => {}, 30000);`);
+	await writeFakeShellExecutable(binDir, "gh", `sleep 30`);
 
 	const child = spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
@@ -347,7 +353,7 @@ test("extractGitHubIssuePr aborts a hung gh availability probe", async () => {
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout);
 	assert.equal(output.result.error, "Aborted");
-	assert.ok(output.elapsed < 1000, `expected abort before gh probe timeout, got ${output.elapsed}ms`);
+	assert.ok(output.elapsed < 5000, `expected abort before gh probe timeout, got ${output.elapsed}ms`);
 });
 
 test("REST fallback preserves caller cancellation", async () => {
@@ -356,20 +362,21 @@ test("REST fallback preserves caller cancellation", async () => {
 	const agentDir = join(root, "agent");
 	await mkdir(binDir, { recursive: true });
 	await mkdir(agentDir, { recursive: true });
-	await writeFakeExecutable(binDir, "gh", `process.exit(1);`);
+	await writeFakeShellExecutable(binDir, "gh", `exit 1`);
 
 	const child = spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
 			const controller = new AbortController();
-			globalThis.fetch = async (_input, init = {}) => {
+			const fetched = [];
+			globalThis.fetch = async (input, init = {}) => {
+				fetched.push(String(input));
 				setTimeout(() => controller.abort(), 10);
 				await new Promise((resolve, reject) => init.signal.addEventListener("abort", () => reject(new Error("Aborted REST fetch")), { once: true }));
 			};
 			const { extractContent } = await import(${JSON.stringify(extractUrl)});
 			const lookup = ${publicLookup.toString()};
-			const started = Date.now();
 			const result = await extractContent("https://github.com/owner/repo/issues/12", controller.signal, { lookup });
-			console.log(JSON.stringify({ elapsed: Date.now() - started, result }));
+			console.log(JSON.stringify({ fetched, result }));
 		`,
 		encoding: "utf8",
 		env: { ...process.env, PATH: `${binDir}${delimiter}${process.env.PATH || ""}`, PI_CODING_AGENT_DIR: agentDir },
@@ -378,7 +385,11 @@ test("REST fallback preserves caller cancellation", async () => {
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.split("\n").at(-2));
 	assert.equal(output.result.error, "Aborted");
-	assert.ok(output.elapsed < 1000, `expected REST abort before generic fallback, got ${output.elapsed}ms`);
+	// The invariant is ORDERING, not speed: the aborted REST request must be the
+	// only fetch — the generic github.com page fallback must never start. (A
+	// wall-clock bound here raced process spawn, which is 300–900 ms on a loaded
+	// host before any code of ours runs.)
+	assert.deepEqual(output.fetched, ["https://api.github.com/repos/owner/repo/issues/12"]);
 });
 
 test("extractContent returns an actionable GitHub rate-limit result instead of HTML fall-through", async () => {
