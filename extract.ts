@@ -1234,7 +1234,10 @@ async function extractViaHttp(
 			try {
 				const buffer = await readPDFResponseBuffer(response, pdfConfig.maxSizeMB);
 				if (signal?.aborted) return abortedResult(url);
-				const result = await extractPDFToMarkdown(buffer, url, { signal });
+				const result = await extractPDFToMarkdown(buffer, url, {
+				signal,
+				outputDir: pdfConfig.outputDir,
+			});
 				activityMonitor.logComplete(activityId, response.status);
 				return {
 					url,

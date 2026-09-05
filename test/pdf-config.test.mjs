@@ -83,6 +83,16 @@ test("pdf.datalabTimeoutMs defaults to 120000 and caps at 300000", () => {
 	);
 });
 
+test("pdf.outputDir defaults to undefined and accepts trimmed string values", () => {
+	assert.equal(readConfig(undefined).outputDir, undefined);
+	assert.equal(
+		readConfig({ pdf: { outputDir: "  /tmp/out  " } }).outputDir,
+		"/tmp/out",
+	);
+	assert.equal(readConfig({ pdf: { outputDir: "   " } }).outputDir, undefined);
+	assert.equal(readConfig({ pdf: { outputDir: 42 } }).outputDir, undefined);
+});
+
 test("PDF streamed byte enforcement allows the exact limit", async () => {
 	const bytes = Uint8Array.from([1, 2]);
 	const maxSizeMB = bytes.byteLength / 1024 / 1024;

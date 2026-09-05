@@ -55,6 +55,8 @@ export interface PDFConfig {
 	provider: PDFProvider;
 	datalabMode: DatalabMode;
 	datalabTimeoutMs: number;
+	/** Directory where extracted PDF markdown files are written. Defaults to a per-session temp directory. */
+	outputDir?: string;
 }
 
 export const DEFAULT_PDF_MAX_SIZE_MB = 20;
@@ -123,8 +125,13 @@ export function loadPDFConfig(): PDFConfig {
 		typeof configuredTimeout === "number" &&
 		Number.isFinite(configuredTimeout) &&
 		configuredTimeout > 0
-			? Math.min(configuredTimeout, MAX_DATALAB_TIMEOUT_MS)
-			: DEFAULT_DATALAB_TIMEOUT_MS;
+		? Math.min(configuredTimeout, MAX_DATALAB_TIMEOUT_MS)
+		: DEFAULT_DATALAB_TIMEOUT_MS;
+	const configuredOutputDir = pdf.outputDir;
+	const outputDir =
+		typeof configuredOutputDir === "string" && configuredOutputDir.trim()
+			? configuredOutputDir.trim()
+			: undefined;
 
 	return {
 		enabled,
@@ -133,6 +140,7 @@ export function loadPDFConfig(): PDFConfig {
 		provider,
 		datalabMode,
 		datalabTimeoutMs,
+		outputDir,
 	};
 }
 
