@@ -123,8 +123,8 @@ test("browser cookie access is disabled unless explicitly allowed", async () => 
 	assert.equal(child.status, 0, child.stderr);
 	assert.equal(child.stdout.trim(), "false");
 
-	await mkdir(join(home, ".pi"), { recursive: true });
-	await writeFile(join(home, ".pi", "web-search.json"), JSON.stringify({ allowBrowserCookies: true }) + "\n", "utf8");
+	await mkdir(join(home, ".pi", "agent"), { recursive: true });
+	await writeFile(join(home, ".pi", "agent", "web-search.json"), JSON.stringify({ allowBrowserCookies: true }) + "\n", "utf8");
 
 	child = runCookieAccessCheck(home);
 	assert.equal(child.status, 0, child.stderr);
@@ -138,8 +138,8 @@ test("browser cookie access is disabled unless explicitly allowed", async () => 
 
 test("disabled browser cookie access does not validate legacy profile selection", async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-cookie-legacy-disabled-"));
-	await mkdir(join(home, ".pi"), { recursive: true });
-	await writeFile(join(home, ".pi", "web-search.json"), JSON.stringify({ chromeProfile: "Profile 1" }) + "\n", "utf8");
+	await mkdir(join(home, ".pi", "agent"), { recursive: true });
+	await writeFile(join(home, ".pi", "agent", "web-search.json"), JSON.stringify({ chromeProfile: "Profile 1" }) + "\n", "utf8");
 
 	const child = runCookieAccessCheck(home);
 	assert.equal(child.status, 0, child.stderr);
@@ -148,8 +148,8 @@ test("disabled browser cookie access does not validate legacy profile selection"
 
 test("browser cookie config validates presets and rejects arbitrary profile paths", async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-browser-cookie-config-"));
-	await mkdir(join(home, ".pi"), { recursive: true });
-	const configPath = join(home, ".pi", "web-search.json");
+	await mkdir(join(home, ".pi", "agent"), { recursive: true });
+	const configPath = join(home, ".pi", "agent", "web-search.json");
 	await writeFile(configPath, JSON.stringify({ browserCookies: { browser: "Helium", profile: "Profile 1" } }) + "\n", "utf8");
 
 	let child = runBrowserCookieConfig(home);

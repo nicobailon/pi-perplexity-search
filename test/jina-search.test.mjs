@@ -42,8 +42,8 @@ const PROVIDER_ENV_KEYS = [
 
 async function createHome(config = {}) {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-jina-search-"));
-	await mkdir(join(home, ".pi"), { recursive: true });
-	await writeFile(join(home, ".pi", "web-search.json"), JSON.stringify(config) + "\n", "utf8");
+	await mkdir(join(home, ".pi", "agent"), { recursive: true });
+	await writeFile(join(home, ".pi", "agent", "web-search.json"), JSON.stringify(config) + "\n", "utf8");
 	return home;
 }
 
@@ -249,7 +249,7 @@ test("configured routing treats Jina's own timeout as transient rather than call
 	`, {
 		HOME: home,
 		USERPROFILE: home,
-		PI_CODING_AGENT_DIR: join(home, ".pi"),
+		PI_CODING_AGENT_DIR: join(home, ".pi", "agent"),
 		JINA_API_KEY: "synthetic-jina-test-key",
 		TAVILY_API_KEY: "synthetic-tavily-test-key",
 	});
@@ -292,7 +292,7 @@ test("configured routing treats a Jina response-body timeout as transient", asyn
 	`, {
 		HOME: home,
 		USERPROFILE: home,
-		PI_CODING_AGENT_DIR: join(home, ".pi"),
+		PI_CODING_AGENT_DIR: join(home, ".pi", "agent"),
 		JINA_API_KEY: "synthetic-jina-test-key",
 		TAVILY_API_KEY: "synthetic-tavily-test-key",
 	});
@@ -320,7 +320,7 @@ test("Jina envelope failures are recorded as activity errors", async () => {
 	`, {
 		HOME: home,
 		USERPROFILE: home,
-		PI_CODING_AGENT_DIR: join(home, ".pi"),
+		PI_CODING_AGENT_DIR: join(home, ".pi", "agent"),
 		JINA_API_KEY: "synthetic-jina-test-key",
 	});
 
@@ -353,7 +353,7 @@ test("configured routing preserves Jina envelope status codes", async () => {
 	`, {
 		HOME: home,
 		USERPROFILE: home,
-		PI_CODING_AGENT_DIR: join(home, ".pi"),
+		PI_CODING_AGENT_DIR: join(home, ".pi", "agent"),
 		JINA_API_KEY: "synthetic-jina-test-key",
 		TAVILY_API_KEY: "synthetic-tavily-test-key",
 	});
@@ -377,7 +377,7 @@ test("configured searchRouting can select Jina Search", async () => {
 		const { search } = await import(${JSON.stringify(searchModuleUrl)});
 		const result = await search("route", { provider: "auto" });
 		console.log(JSON.stringify({ provider: result.provider, results: result.results }));
-	`, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: join(home, ".pi"), JINA_API_KEY: "synthetic-jina-test-key" });
+	`, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: join(home, ".pi", "agent"), JINA_API_KEY: "synthetic-jina-test-key" });
 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());

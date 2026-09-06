@@ -22,7 +22,7 @@ export function getWebSearchConfigDir(): string {
 		if (existsSync(join(legacyDir, "web-search.json"))) return cachedWebSearchConfigDir = legacyDir;
 		return cachedWebSearchConfigDir = xdgDir;
 	}
-	return cachedWebSearchConfigDir = join(homedir(), ".pi");
+	return cachedWebSearchConfigDir = join(homedir(), ".pi", "agent");
 }
 
 export function getWebSearchConfigPath(): string {

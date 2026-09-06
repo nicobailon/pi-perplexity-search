@@ -11,9 +11,9 @@ const extractModuleUrl = new URL("../extract.ts", import.meta.url).href;
 
 async function createHome(config = {}) {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-parallel-"));
-	await mkdir(join(home, ".pi"), { recursive: true });
+	await mkdir(join(home, ".pi", "agent"), { recursive: true });
 	await writeFile(
-		join(home, ".pi", "web-search.json"),
+		join(home, ".pi", "agent", "web-search.json"),
 		JSON.stringify(config) + "\n",
 		"utf8",
 	);
