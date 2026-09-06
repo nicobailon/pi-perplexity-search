@@ -64,6 +64,37 @@ test("web-search config path uses PI_CODING_AGENT_DIR before XDG_CONFIG_HOME", a
 	});
 });
 
+test("web-search config path defaults to the Pi agent directory without a legacy fallback", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-agent-config-path-"));
+	const home = join(root, "home");
+	const agentDir = join(home, ".pi", "agent");
+	await mkdir(agentDir, { recursive: true });
+	await writeFile(join(home, ".pi", "web-search.json"), JSON.stringify({ perplexityApiKey: "pplx-from-legacy" }) + "\n", "utf8");
+	await writeFile(join(agentDir, "web-search.json"), JSON.stringify({ geminiApiKey: "gemini-from-agent" }) + "\n", "utf8");
+
+	const child = runChild(`
+		const { getWebSearchConfigDir, getWebSearchConfigPath } = await import(${JSON.stringify(utilsUrl)});
+		const { isGeminiApiAvailable } = await import(${JSON.stringify(geminiApiUrl)});
+		console.log(JSON.stringify({
+			dir: getWebSearchConfigDir(),
+			path: getWebSearchConfigPath(),
+			available: isGeminiApiAvailable(),
+		}));
+	`, {
+		PI_CODING_AGENT_DIR: undefined,
+		XDG_CONFIG_HOME: undefined,
+		HOME: home,
+		USERPROFILE: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	assert.deepEqual(JSON.parse(child.stdout), {
+		dir: agentDir,
+		path: join(agentDir, "web-search.json"),
+		available: true,
+	});
+});
+
 test("web-search config path uses XDG_CONFIG_HOME pi directory when agent dir is unset", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-web-access-xdg-config-"));
 	const home = join(root, "home");

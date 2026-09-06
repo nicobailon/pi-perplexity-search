@@ -13,7 +13,7 @@ const brightdataModuleUrl = new URL(
 const extractModuleUrl = new URL("../extract.ts", import.meta.url).href;
 
 // Scrubbing the env vars is not enough on its own: a `brightdataApiKey` written
-// as an explicit `$VAR`/`!command` source in the real `~/.pi/web-search.json`
+// as an explicit `$VAR`/`!command` source in the real `~/.pi/agent/web-search.json`
 // overrides the environment by design, so a maintainer with one configured
 // would resolve their own credential (and run their own resolver command)
 // inside these tests. Every child therefore starts from an empty home unless a

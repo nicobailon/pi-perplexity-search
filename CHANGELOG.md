@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed no-environment web-search config lookup to use Pi's agent directory (`~/.pi/agent/web-search.json`) without implicitly falling back to the legacy `~/.pi/web-search.json`. Existing `PI_CODING_AGENT_DIR` and XDG compatibility behavior remain unchanged. Thanks to [@lJoublanc](https://github.com/lJoublanc) for issue #360.
+
 ## [0.28.0] - 2026-09-04
 
 ### Highlights

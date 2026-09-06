@@ -39,9 +39,9 @@ const PROVIDER_ENV_KEYS = [
 
 async function createHome(config = {}) {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-querit-"));
-	await mkdir(join(home, ".pi"), { recursive: true });
+	await mkdir(join(home, ".pi", "agent"), { recursive: true });
 	await writeFile(
-		join(home, ".pi", "web-search.json"),
+		join(home, ".pi", "agent", "web-search.json"),
 		JSON.stringify(config) + "\n",
 		"utf8",
 	);
@@ -409,7 +409,7 @@ test("configured search routing can select Querit", async () => {
 		{
 			HOME: home,
 			USERPROFILE: home,
-			PI_CODING_AGENT_DIR: join(home, ".pi"),
+			PI_CODING_AGENT_DIR: join(home, ".pi", "agent"),
 			QUERIT_API_KEY: "synthetic-querit-test-key",
 		},
 	);

@@ -33,8 +33,8 @@ const PROVIDER_ENV_KEYS = [
 
 async function createHome(config = {}) {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-searchinfinity-"));
-	await mkdir(join(home, ".pi"), { recursive: true });
-	await writeFile(join(home, ".pi", "web-search.json"), JSON.stringify(config) + "\n", "utf8");
+	await mkdir(join(home, ".pi", "agent"), { recursive: true });
+	await writeFile(join(home, ".pi", "agent", "web-search.json"), JSON.stringify(config) + "\n", "utf8");
 	return home;
 }
 
@@ -210,7 +210,7 @@ test("configured searchRouting can select Searchinfinity", async () => {
 		const { search } = await import(${JSON.stringify(searchModuleUrl)});
 		const result = await search("route", { provider: "auto" });
 		console.log(JSON.stringify({ provider: result.provider, results: result.results }));
-	`, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: join(home, ".pi"), SEARCHINFINITY_API_KEY: "synthetic-searchinfinity-test-key" });
+	`, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: join(home, ".pi", "agent"), SEARCHINFINITY_API_KEY: "synthetic-searchinfinity-test-key" });
 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
