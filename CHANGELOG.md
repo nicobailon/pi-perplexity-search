@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added an explicit-only SerpApi Google Search provider with `serpapiApiKey` / `SERPAPI_KEY`, domain filtering, recency filtering, routing, and Curator support.
+
 ### Fixed
 
 - Fixed no-environment web-search config lookup to use Pi's agent directory (`~/.pi/agent/web-search.json`) without implicitly falling back to the legacy `~/.pi/web-search.json`. Existing `PI_CODING_AGENT_DIR` and XDG compatibility behavior remain unchanged. Thanks to [@lJoublanc](https://github.com/lJoublanc) for issue #360.
